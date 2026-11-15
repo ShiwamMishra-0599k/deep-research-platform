@@ -26,7 +26,7 @@ export async function launch({ width = 1440, height = 900, mobile = false, reduc
     if (d.method === "Runtime.exceptionThrown") logs.push("exception: " + d.params.exceptionDetails.text + " " + (d.params.exceptionDetails.exception?.description ?? ""));
   };
   const send = (method, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
-  await send("Page.enable"); await send("Runtime.enable");
+  await send("Page.enable"); await send("Runtime.enable"); await send("Network.enable");
   const setSize = (w, h, m = false) => send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile: m });
   await setSize(width, height, mobile);
   if (reducedMotion) await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
@@ -48,6 +48,10 @@ export async function launch({ width = 1440, height = 900, mobile = false, reduc
     async key(key, code = key, extra = {}) { await send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: extra.vk ?? 0, ...extra }); await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: extra.vk ?? 0 }); },
     async type(text) { await send("Input.insertText", { text }); },
     sleep,
+    /** Every cookie in the browser jar, INCLUDING HttpOnly ones (what page script can NOT see). */
+    async cookies() { const r = await send("Network.getAllCookies"); return r.result.cookies; },
+    async clearCookies() { await send("Network.clearBrowserCookies"); },
+    async setCookie(c) { return send("Network.setCookie", c); },
     async seedAuth() { await api.eval(`localStorage.setItem('auth_token','tok');localStorage.setItem('auth_user',JSON.stringify({id:'u1',email:'demo@example.com',name:'Demo User'}))`); },
     close() { try { ws.close(); } catch {} proc.kill(); },
   };

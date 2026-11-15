@@ -118,7 +118,7 @@ def main() -> int:
           backend_env(), cwd=ROOT / "backend")
     npx = shutil.which("npx") or "npx"
     start("frontend", [npx, "vite", "--host", "127.0.0.1", "--port", P_WEB, "--strictPort"],
-          {"VITE_API_URL": f"http://127.0.0.1:{P_API}/api"}, cwd=ROOT / "frontend")
+          {"VITE_PROXY_TARGET": f"http://127.0.0.1:{P_API}"}, cwd=ROOT / "frontend")  # same origin: Vite proxies /api, no VITE_API_URL
 
     ok = (
         wait_http(f"http://127.0.0.1:{P_LLM}/health")
@@ -133,7 +133,7 @@ def main() -> int:
 
     node = shutil.which("node") or "node"
     r = subprocess.run([node, str(ROOT / "e2e" / "scenario.mjs")], cwd=ROOT,
-                       env={**os.environ, "E2E_APP": f"http://127.0.0.1:{P_WEB}", "E2E_API": f"http://127.0.0.1:{P_API}/api", "E2E_OUT": str(OUT)})
+                       env={**os.environ, "E2E_APP": f"http://127.0.0.1:{P_WEB}", "E2E_OUT": str(OUT)})
 
     blocked = OUT / "blocked-requests.log"
     leaked = blocked.read_text().strip() if blocked.exists() else ""
