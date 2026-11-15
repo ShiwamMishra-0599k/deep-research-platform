@@ -70,7 +70,7 @@ checked once against the real services.
 | I2 | `create_all` on startup, no migrations, no composite indexes | **Fixed** — Alembic (baseline + 0002); advisory-locked; adopts old databases without touching data; verified on a legacy-schema fixture and a restarted container |
 | I3 | Containers ran as root | **Fixed** — UID 10001 for backend and agent (verified) |
 | I4 | No healthchecks | **Fixed** — backend readiness (DB), agent liveness; backend waits for a healthy agent |
-| I5 | Postgres uses development credentials (`lumen`/`lumen`) | **Accepted for local dev** — deliberately not changed here because that would lock the backend out of the existing data volume. Rotate before any shared deployment |
+| I5 | Postgres used a hardcoded development credential (`lumen`/`lumen`) in the backend default, compose and `.env.example` | **Fixed in code and config** — no default exists; weak/default passwords are refused at startup (opt-in `ALLOW_INSECURE_DEV_DB`, local targets only); compose requires `POSTGRES_PASSWORD`; `scripts/init_env.py` generates strong secrets. **Rotation of an existing volume is tooling + a verified rehearsal, not an action taken on your data** — see §6 |
 | I6 | Redis unbounded memory | **Fixed** — 256 MB `allkeys-lru`, no persistence |
 
 ### Test-harness integrity (found during this work)
@@ -79,6 +79,22 @@ The fake internet was first built by patching `httpx`. The follow-up generator's
 `api.openai.com` (with a fake key; only synthetic text was sent). The harness had reported "no unfaked network access". It is now
 sealed at the socket layer (non-loopback connect and DNS refused and logged) and the suites assert that nothing escaped. Scope of
 that guarantee: the Python services. The browser in the integration run still loads Leaflet CSS, fonts and map tiles from public CDNs.
+
+### Release-readiness milestone (rate limiting, credentials, CI)
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| R1 | High | Rate limits were per process: with N replicas every limit (login, lockout, paid research, concurrency) was multiplied by N | **Fixed** — Redis-backed, atomic, shared. Verified across 3 real processes: exactly 6 of 12 logins pass, a lockout recorded on A and B is enforced on C, research limit and concurrency caps hold, abandoned streams free their slots |
+| R2 | High | A Redis outage must not leave login or paid LLM calls unlimited | **Fixed** — bounded local fallback (default) or fail-closed 503 per `RATE_LIMIT_FAIL_MODE`; verified with the real container stopped and restarted. Generic API traffic never fails closed |
+| R3 | Medium | A cold 80-thread burst at the production 250 ms timeout hit Redis timeouts, fell back to per-process limits and granted 14 of 10 | **Fixed** (found by a concurrency test) — bounded connection pool, startup warm-up, one immediate retry; 60 repeated runs exact |
+| R4 | Medium | `X-Forwarded-For` spoofing would let an attacker rotate their identity past every IP limit | **Fixed** — header trusted only from `TRUSTED_PROXY_CIDRS`, right-most untrusted hop, IPv6 /64 bucketing; 24 unit + 4 HTTP tests incl. spoofed prefixes |
+| R5 | Medium | Raw email/IP/user id would have been stored as Redis keys | **Fixed** — HMAC-hashed namespaced keys, all with TTL (asserted in tests and in the real compose Redis) |
+| R6 | High | Hardcoded weak database credential (see I5); also pydantic validation errors printed the offending `DATABASE_URL`/secret into logs | **Fixed** — `hide_input_in_errors`; tested |
+| R7 | High | **Compose volume collision:** project name derived from the folder name made this repo's `docker compose up` attach to `deep-research-platform_postgres_data`, which on the development machine belongs to a different repository's *running* stack (`alvoff-*`, different superuser) | **Fixed** — `name: lumen`; the rotation script refuses any volume a container uses and any volume lacking the named role. No change was made to that volume or stack |
+| R8 | Medium | The first rotation script design verified over loopback, where `pg_hba.conf` is `trust`, so it could not detect that passwords were not being checked, and it only found out after changing the password | **Fixed** (found by the rehearsal) — verification from a second container on an internal network, and a preflight *before* any change |
+| R9 | Low | CI workflow would have failed: unquoted `: ` in a step name (invalid YAML) and the agent's dev tools live in a PEP 735 dependency group that `pip install -e` ignores | **Fixed** (found by schema/actionlint validation and a clean Linux rehearsal) |
+| R10 | Low | Test limiter names were fixed strings with up-to-1-hour windows, so state persisted across runs | **Fixed** — unique names; suite passes repeatedly |
+| R11 | Moderate (deps) | New react-router advisory GHSA-337j-9hxr-rhxg (SSR hydration `deserializeErrors`) | **Accepted** — the app has no server-side rendering; same upgrade path as F6. The CI gate fails only on high/critical |
 
 ## 2. Decision: HttpOnly-cookie sessions — evaluated, deferred
 
@@ -94,7 +110,10 @@ frontend tests. Until then, serve the frontend with a strict CSP (`default-src '
 
 ## 3. Residual risks and accepted limits
 
-- **Rate limits are per process.** Several backend replicas multiply the limits. Use a shared store (Redis) before scaling out.
+- **During a Redis outage the default (fail-local) ceiling is per replica**, i.e. replicas × limit, until Redis returns. Use `RATE_LIMIT_FAIL_MODE=closed` if that is unacceptable for login/research.
+- **Redis eviction.** Rate-limit counters share a Redis (`allkeys-lru`, 256 MB) with the agent's cache. A flood of cache keys could in theory evict counters. Give limits their own instance if this matters.
+- **`TRUSTED_PROXY_CIDRS` is a trust decision.** Listing a range you do not control lets those hosts choose the client identity; leave it empty unless you operate the proxy. With it empty, all users behind one proxy share one per-IP bucket (strict, never spoofable).
+- **Rotating `JWT_SECRET` changes the HMAC of rate-limit keys**, resetting current counters (harmless; they are short-lived).
 - **No token revocation** before the 24 h expiry; no refresh tokens; no email verification or password reset; no account/data deletion endpoint.
 - **No per-user quotas** on conversation count or stored message size (a per-message blocks cap exists).
 - **Prompt injection is mitigated, not solved.** An attacker-controlled search result can still appear as a Sources chip (the URL is real search-result provenance) and can still sway wording.
@@ -108,11 +127,22 @@ frontend tests. Until then, serve the frontend with a strict CSP (`default-src '
 
 ## 4. Not reviewed / not tested
 
-Real LLM and paid search providers; HTTPS/TLS termination; multi-replica behaviour; load and soak; Firefox/Safari/real mobile
+The GitHub Actions workflow has **not been executed on GitHub** (that needs a push); it is schema- and actionlint-validated, and every job's commands ran in clean Linux containers. The credential rotation was **rehearsed on a synthetic legacy volume; no real volume was rotated** (the only same-named volume belongs to another project's live stack). Real LLM and paid search providers; HTTPS/TLS termination; multi-replica behaviour; load and soak; Firefox/Safari/real mobile
 devices; accessibility with a screen reader (contrast, focus order and semantics were checked programmatically); the browser's
 behaviour on a hostile network; penetration testing by a third party.
 
-## 5. Re-running the evidence
+## 5. Database credential status
+
+| Item | Status |
+|---|---|
+| Insecure default removed from backend config, compose, `.env.example` | **Done and tested** |
+| Weak/default password refused at startup; opt-in flag restricted to local targets | **Done and tested** (process-level + image-level) |
+| Strong-secret generation (`scripts/init_env.py`) | **Done and tested** |
+| Rotation procedure for an already-initialised volume (backup → restore-verify → rotate → verify → data intact) | **Implemented; proven by a 19-check rehearsal** on a synthetic `lumen`/`lumen` volume created like the old compose did, including refusals (volume in use, wrong role, wrong PG version, weak new password) |
+| Rotation of *your* existing data | **Not performed.** There is no volume belonging to this checkout: `deep-research-platform_postgres_data` is mounted read-write by the running `alvoff-postgres` container of a different repository and has no `lumen` role. Touching it would have broken that stack. A fresh `docker compose up` here creates `lumen_postgres_data` with a strong password |
+| Production database credentials / secret store | **Blocked on deployment infrastructure** — decide where secrets live (a secret manager or the platform's encrypted env); the repo now fails closed without them |
+
+## 6. Re-running the evidence
 
 See `TEST_PLAN.md`. Scanners: `uvx bandit -r backend/app research-agent/src`, `uvx pip-audit -r backend/requirements.txt`,
 `cd frontend && npm audit --omit=dev`.

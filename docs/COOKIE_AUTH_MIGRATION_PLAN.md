@@ -227,7 +227,7 @@ Each stage is independently revertible by redeploying the previous build and/or 
 ## 13. Acceptance criteria (all must be demonstrated, not asserted)
 
 1. No credential-bearing value is readable by script: `localStorage`/`sessionStorage` contain no token; session cookies are `HttpOnly` (verified through the browser cookie jar).
-2. Every case in §11 passes in both unit tests and the real-browser run; the prior 144 backend + 379 agent + 42 browser + 39 outage checks still pass.
+2. Every case in §11 passes in both unit tests and the real-browser run; the prior 230 backend + 379 agent + 42 browser + 39 outage checks still pass.
 3. A forged cross-site request cannot change state, including the SSE `POST …/query` and login.
 4. Logout and revocation take effect on the next request; refresh reuse revokes the family.
 5. Browser refresh and multi-tab behaviour work without login flicker or loops.

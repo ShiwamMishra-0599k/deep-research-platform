@@ -5,7 +5,7 @@ Read this before changing anything. Then read `ARCHITECTURE.md` and `SECURITY_RE
 ## Hard rules
 
 1. **The frontend design is frozen** (`DESIGN.md`). Do not change the palette, tokens, layout or add dark mode. Touch `frontend/` only to fix real functionality, security, accessibility or integration problems.
-2. **Never delete data.** Do not remove Docker volumes (`deep-research-platform_postgres_data`, `…_redis_data`), do not run `docker compose down -v`, do not drop/truncate anything except in the isolated test database (name ends in `_test`, localhost only — `backend/tests/conftest.py` enforces this).
+2. **Never delete data.** Do not remove Docker volumes (this repo's are `lumen_postgres_data` / `lumen_redis_data`; `deep-research-platform_*` belong to a DIFFERENT repository's running stack — leave them alone), do not run `docker compose down -v` against a real stack, do not drop/truncate anything except in the isolated test database (name ends in `_test`, localhost only — `backend/tests/conftest.py` enforces this).
 3. **No new dependencies without explicit approval.** Version bumps for security fixes are fine when documented.
 4. **Local Git only.** Never force-push, rewrite remote history, or use destructive commands (`reset --hard`, `clean -fd`, `checkout -- .`) to tidy the tree.
 5. **Never commit secrets** (`.env`, keys). `JWT_SECRET` and `AGENT_API_KEY` come from the environment.
@@ -21,7 +21,10 @@ Read this before changing anything. Then read `ARCHITECTURE.md` and `SECURITY_RE
 - All fetched web content is untrusted data. URL fetching goes through the SSRF guard; never fetch a model- or user-supplied URL with a bare `httpx.get`.
 - Tool outputs destined for structured parsing must have `|` and newlines stripped from every field.
 - Do not cache error results. Cache keys are global, so cached values must never contain user data.
-- Secrets must be ≥32 chars and not placeholder-like; the app refuses to start otherwise.
+- Secrets must be ≥32 chars and not placeholder-like; the app refuses to start otherwise. `DATABASE_URL` has no default and weak/default database passwords are refused (`ALLOW_INSECURE_DEV_DB` is for local databases only).
+- Rate limits and concurrency guards go through `app/ratelimit.py` (Redis, atomic Lua, bounded fallback). Never add an in-memory-only limiter for a guarded operation, never fall back to *unlimited*, never store raw emails/IPs/user ids in Redis.
+- Client IP comes from `app/client_ip.py` only. Never read `X-Forwarded-For` directly.
+- Never run a destructive Docker command on a volume you did not create in this session. Identify the owner first (`docker ps -a --filter volume=<name>`). `scripts/rotate_db_password.py` refuses volumes in use.
 
 ## Layout & commands
 
@@ -49,7 +52,11 @@ docker run -d --name lumen-test-redis -p 127.0.0.1:56379:6379 redis:7-alpine
 | Agent lint | `cd research-agent && .venv/Scripts/python.exe -m ruff check src tests` |
 | Frontend gates | `cd frontend && npx tsc --noEmit && npx vite build` |
 | New migration | `cd backend && DATABASE_URL=… JWT_SECRET=… alembic revision --autogenerate -m "…"` then review it |
-| Compose validation | `JWT_SECRET=… AGENT_API_KEY=… docker compose config -q` |
+| Compose validation | `JWT_SECRET=… AGENT_API_KEY=… POSTGRES_PASSWORD=… docker compose config -q` |
+| Generate secrets | `python scripts/init_env.py` (git-ignored `.env`; never overwrites) |
+| Rotate a DB password | `python scripts/rotate_db_password.py --volume <name> --dry-run` first; see `docs/DB_CREDENTIALS.md` |
+| Every CI job locally | `python scripts/ci_local.py` |
+| Multi-instance limits / rotation rehearsal | `backend/.venv/Scripts/python.exe e2e/multi_instance_tests.py` / `…/rotation_rehearsal.py` |
 
 Other projects may occupy 8004/8080/5433/6379 on the same machine; use the high test ports above for local runs.
 

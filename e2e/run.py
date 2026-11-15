@@ -26,7 +26,8 @@ AGENT_PY = ROOT / "research-agent" / ".venv" / BIN / ("python.exe" if IS_WIN els
 
 PG_ADMIN = "postgresql+psycopg://lumen_test:lumen_test@127.0.0.1:55432/lumen_test"
 E2E_DB = "postgresql+psycopg://lumen_test:lumen_test@127.0.0.1:55432/lumen_e2e_test"
-REDIS = "redis://127.0.0.1:56379/2"
+REDIS = "redis://127.0.0.1:56379/2"          # agent tool cache
+RATE_LIMIT_REDIS = "redis://127.0.0.1:56379/5"  # backend rate limits (shared by every backend instance)
 P_LLM, P_AGENT, P_API, P_WEB = 18999, 18004, 18080, 15173
 SECRETS = {"JWT_SECRET": "e2e" + "Xq7" * 14, "AGENT_API_KEY": "e2e-agent-key-" + "k3" * 12}
 
@@ -41,7 +42,10 @@ def backend_env(**extra):
     return {
         "DATABASE_URL": E2E_DB, "ALLOW_INSECURE_DEV_DB": "1", "JWT_SECRET": SECRETS["JWT_SECRET"], "AGENT_API_KEY": SECRETS["AGENT_API_KEY"],
         "RESEARCH_AGENT_URL": f"http://127.0.0.1:{P_AGENT}", "CORS_ALLOWED_ORIGINS": f"http://127.0.0.1:{P_WEB}",
-        "QUERIES_PER_USER_PER_MINUTE": "60", "RESEARCH_TIMEOUT_SECONDS": "120", **{k: str(v) for k, v in extra.items()},
+        "QUERIES_PER_USER_PER_MINUTE": "60", "RESEARCH_TIMEOUT_SECONDS": "120",
+        # Real Redis-backed limits. Per-IP limits are raised because every simulated user shares 127.0.0.1.
+        "REDIS_URL": RATE_LIMIT_REDIS, "REGISTER_PER_IP_PER_HOUR": "1000", "LOGIN_PER_IP_PER_MINUTE": "1000",
+        "API_REQUESTS_PER_USER_PER_MINUTE": "5000", **{k: str(v) for k, v in extra.items()},
     }
 
 
@@ -81,7 +85,8 @@ def prepare_database():
     subprocess.run([str(BACKEND_PY), "-c", code], check=True)
     subprocess.run([str(BACKEND_PY), "-m", "app.migrate"], check=True, cwd=ROOT / "backend",
                    env={**os.environ, "DATABASE_URL": E2E_DB})
-    subprocess.run([str(AGENT_PY), "-c", f"import redis;redis.Redis.from_url('{REDIS}').flushdb()"], check=True)
+    subprocess.run([str(AGENT_PY), "-c",
+                    f"import redis;[redis.Redis.from_url(u).flushdb() for u in ('{REDIS}', '{RATE_LIMIT_REDIS}')]"], check=True)
 
 
 def stop_all() -> None:
