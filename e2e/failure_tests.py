@@ -361,11 +361,5 @@ if __name__ == "__main__":
         # leave the throwaway test containers running for later suites
         for name in ("lumen-test-pg", "lumen-test-redis"):
             docker("start", name)
-        for p in run.procs:
-            p.terminate()
-        for p in run.procs:
-            try:
-                p.wait(timeout=10)
-            except Exception:
-                p.kill()
+        run.stop_all()
     sys.exit(code)

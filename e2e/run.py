@@ -84,6 +84,20 @@ def prepare_database():
     subprocess.run([str(AGENT_PY), "-c", f"import redis;redis.Redis.from_url('{REDIS}').flushdb()"], check=True)
 
 
+def stop_all() -> None:
+    """Kill every spawned process AND its children (npx -> node would otherwise survive)."""
+    for p in procs:
+        if IS_WIN:
+            subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
+        else:
+            p.terminate()
+    for p in procs:
+        try:
+            p.wait(timeout=10)
+        except Exception:
+            p.kill()
+
+
 def main() -> int:
     for p in (BACKEND_PY, AGENT_PY):
         if not p.exists():
@@ -126,11 +140,5 @@ if __name__ == "__main__":
     try:
         code = main()
     finally:
-        for p in procs:
-            p.terminate()
-        for p in procs:
-            try:
-                p.wait(timeout=10)
-            except Exception:
-                p.kill()
+        stop_all()
     sys.exit(code)
