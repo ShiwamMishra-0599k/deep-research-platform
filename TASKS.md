@@ -10,7 +10,7 @@ Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 | 2 | **A. Publish to GitHub** (`release-readiness/ci-validation`), Actions green, repo review | 🟡 blocked: the active `gh` account (ShiwamMishra-0599k) lacks the `workflow` token scope; README/docs prepared. No merge to `main` without explicit authorization |
 | 3 | AI research quality and evaluation | 🟡 harness built and verified hermetically (16 golden cases, 6 scorers, 14 unit tests, spend-gated live mode, `eval/`); **no real-provider measurement yet**: needs your API keys and an approved spend cap |
 | 4 | Performance and cost optimization (measured, honest benchmarks) | ⬜ |
-| 5 | **B. Production deployment**: design, IaC and cost estimate prepared first; **no AWS resource, charge or public deployment without explicit approval of architecture and cost** | ⬜ design not yet presented |
+| 5 | **B. Production deployment**: **no AWS resource, charge or public deployment without explicit approval of architecture and cost** | 🟡 proposal and reproducible cost model written (`docs/DEPLOYMENT_PROPOSAL.md`, `deploy/aws/cost_estimate.py`): recommended option about 102.60 USD (9,670 INR) per month plus provider usage. **Awaiting your approval and AWS access**; Terraform and deploy scripts are the next prepared (not applied) step |
 | 6 | **C. Portfolio launch**: case study, diagrams, real screenshots, demo script, benchmarks | ⬜ (after deployment validation) |
 
 ## Milestone: backend, agent and integration security (this change set)
