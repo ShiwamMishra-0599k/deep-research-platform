@@ -36,3 +36,6 @@ htmlcov/
 backups/
 
 *.tsbuildinfo
+
+# Evaluation reports
+eval/results/

@@ -8,7 +8,7 @@ Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 |---|---|---|
 | 1 | Release readiness: rate limiting, DB credentials, CI, frontend tests, cookie sessions | ✅ built and tested locally |
 | 2 | **A. Publish to GitHub** (`release-readiness/ci-validation`), Actions green, repo review | 🟡 blocked: the active `gh` account (ShiwamMishra-0599k) lacks the `workflow` token scope; README/docs prepared. No merge to `main` without explicit authorization |
-| 3 | AI research quality and evaluation (golden questions, citation checks, real-provider runs) | ⬜ |
+| 3 | AI research quality and evaluation | 🟡 harness built and verified hermetically (16 golden cases, 6 scorers, 14 unit tests, spend-gated live mode, `eval/`); **no real-provider measurement yet**: needs your API keys and an approved spend cap |
 | 4 | Performance and cost optimization (measured, honest benchmarks) | ⬜ |
 | 5 | **B. Production deployment**: design, IaC and cost estimate prepared first; **no AWS resource, charge or public deployment without explicit approval of architecture and cost** | ⬜ design not yet presented |
 | 6 | **C. Portfolio launch**: case study, diagrams, real screenshots, demo script, benchmarks | ⬜ (after deployment validation) |
