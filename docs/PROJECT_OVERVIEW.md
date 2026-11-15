@@ -1,5 +1,9 @@
 # Lumen — Project Overview
 
+> **Note:** This overview predates the security/reliability hardening. For the current architecture, data model, auth
+> model and failure behaviour see [`../ARCHITECTURE.md`](../ARCHITECTURE.md); for threats see
+> [`../SECURITY_REVIEW.md`](../SECURITY_REVIEW.md). Where they disagree, those documents are correct.
+
 A full-stack AI research assistant. Three services, all containerised, talking over HTTP+SSE.
 
 ```
@@ -60,7 +64,7 @@ messages(
 )
 ```
 
-Tables auto-create on backend startup via `Base.metadata.create_all`. Production would add Alembic migrations.
+Schema is managed by Alembic migrations (`backend/alembic/`), applied on backend start by `python -m app.migrate`.
 
 ## API surface
 
@@ -126,10 +130,10 @@ Same shape, three places: Pydantic models in `research-agent/`, JSONB column in 
 ## Security
 
 - Passwords: bcrypt via passlib
-- JWT: HS256, 24h, claims `{sub: email, uid, name}`
+- JWT: HS256, 24h, claims `{sub: user id, iss, aud, iat, exp, jti}` (no PII)
 - CORS: `CORS_ALLOWED_ORIGINS` env var (default `http://localhost:5173`)
 - Auth: every `/api/conversations*` route requires Bearer token; `/api/auth/**` is open
-- Bearer accepted via `Authorization` header or `?token=` query param (latter is for SSE clients that can't set headers)
+- Bearer accepted via the `Authorization` header only (the `?token=` query parameter was removed: it leaked tokens into URLs and logs)
 
 ## Repo layout
 
@@ -161,7 +165,6 @@ deep-research-platform/
 
 ## Future work
 
-- Alembic migrations
 - httpOnly cookie auth instead of `localStorage`
 - Tool-choice transparency in the UI (show which search provider answered)
 - Streaming follow-up generation (currently a separate trailing LLM call)

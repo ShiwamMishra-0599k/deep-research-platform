@@ -1,117 +1,128 @@
 # Lumen — Deep Research Platform
 
-A full-stack research assistant: React frontend, Python FastAPI backend, PostgreSQL persistence, and a separate Python research agent that runs a Deep Agents ReAct loop with 8 custom tools and streams structured rich-media blocks (markdown, tables, maps, insight cards) over SSE.
+A full-stack research assistant. Sign in, ask a question, watch the agent work, and get a cited answer made of structured
+blocks (markdown, tables, maps, metric cards). React frontend, FastAPI backend, PostgreSQL, and a separate Python research agent
+(Deep Agents / LangGraph) with eight tools, streaming everything over Server-Sent Events.
 
 ```
-┌──────────────┐  HTTP+SSE   ┌────────────────────┐   HTTP+SSE   ┌────────────────────┐
-│  React UI    │◄───────────►│  FastAPI Backend   │◄────────────►│ Python Research    │
-│  (Vite/TS)   │  JWT auth   │  + PostgreSQL      │              │ Agent (FastAPI)    │
-└──────────────┘             └────────────────────┘              └────────────────────┘
-                                       │                                    │
-                                       ▼                                    ▼
-                                 PostgreSQL 16                          Redis 7
-                              (users, conversations,                    (tool cache)
-                               messages, blocks)
+┌────────────┐  HTTPS+SSE   ┌─────────────────────┐  SSE + X-Internal-Token  ┌──────────────────────┐
+│ React UI   │◄────────────►│ FastAPI backend     │◄────────────────────────►│ Research agent       │
+│ Vite / TS  │  Bearer JWT  │ auth · DB · SSE     │   (not published)        │ Deep Agents · 8 tools│
+└────────────┘              └──────────┬──────────┘                          └───────────┬──────────┘
+                                       ▼                                                 ▼
+                                 PostgreSQL 16                                    Redis 7 (tool cache)
 ```
 
-## Quick start
+Documentation: [`PRD.md`](PRD.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`research-agent/ARCHITECTURE.md`](research-agent/ARCHITECTURE.md) ·
+[`DESIGN.md`](DESIGN.md) · [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) · [`TEST_PLAN.md`](TEST_PLAN.md) · [`TASKS.md`](TASKS.md) · [`AGENTS.md`](AGENTS.md)
+
+## Quick start (Docker)
 
 ```bash
-# 1. add API keys to the agent
+# 1. secrets (both REQUIRED — compose and the backend refuse to start without them)
+cp .env.example .env
+#    edit .env:  JWT_SECRET=$(openssl rand -base64 48)   AGENT_API_KEY=$(openssl rand -base64 32)
+
+# 2. agent keys
 cp research-agent/.env.example research-agent/.env
-# fill in OPENROUTER_API_KEY and EXA_API_KEY (TAVILY_API_KEY recommended)
+#    fill OPENROUTER_API_KEY (or OPENAI_API_KEY) and EXA_API_KEY / TAVILY_API_KEY (DuckDuckGo is the keyless fallback)
 
-# 2. (optional) override JWT secret
-export JWT_SECRET="$(openssl rand -base64 48)"
-
-# 3. boot postgres + redis + agent + backend
+# 3. start postgres + redis + agent + backend (migrations run automatically)
 docker compose up --build -d
 
-# 4. run the frontend
-cd frontend
-npm install
-npm run dev
+# 4. frontend
+cd frontend && npm install && npm run dev      # http://localhost:5173
 ```
 
-Open http://localhost:5173 → register → ask anything.
+| Service | Reachable from | Notes |
+|---|---|---|
+| frontend dev server | host `:5173` | proxies `/api` to the backend |
+| backend | host `127.0.0.1:8080` | put a TLS proxy in front for real use |
+| postgres | host `127.0.0.1:5433` | development credentials — change for shared use |
+| research-agent | **compose network only** | requires `X-Internal-Token`; never published |
+| redis | **compose network only** | cache only, memory-bounded |
 
-> **Port note:** Postgres is mapped to host `5433` to avoid clashing with a local install. Inside the docker network the service is still on 5432.
+> If another project already uses 8080/5433 on your machine, override the published ports with a compose override file.
 
-## What's where
+## Repository layout
 
 | Path | What |
 |---|---|
-| `frontend/` | React 18 + Vite + TypeScript + Tailwind + Framer Motion. Modular `BlockRenderer` adapts to every research block type (markdown, data-table, leaflet-map, insight-cards) with a JSON fallback so unknown future block types never break the UI. |
-| `backend/` | FastAPI 0.115 on Python 3.12. SQLAlchemy 2 + Postgres (JSONB blocks), `python-jose` JWT, `passlib` bcrypt. Auth (register/login/me), conversations CRUD, persistent messages. `POST /api/conversations/{id}/query` proxies SSE from the agent and writes the final assistant message to Postgres. |
-| `research-agent/` | FastAPI service (port 8004). `POST /research` returns SSE: `checkpoint` per tool call, then `blocks` (or `clarification`/`error`), then `done`. Deep Agents ReAct loop, Redis-cached tool results, OpenRouter primary + OpenAI fallback. |
-| `docker-compose.yml` | postgres, redis, research-agent, backend. Frontend runs natively for HMR. |
+| `frontend/` | React 18 + Vite + TypeScript + Tailwind + Framer Motion. `BlockRenderer` maps block types to components with a JSON fallback for unknown types |
+| `backend/` | FastAPI on Python 3.12, SQLAlchemy 2, Alembic, JWT (HS256) + bcrypt, rate limiting, SSE bridge |
+| `research-agent/` | FastAPI service: Deep Agents ReAct loop, 8 tools, SSRF guard, Redis cache, block formatter |
+| `e2e/` | Full-stack integration harness (real PostgreSQL/Redis/backend/agent; fake LLM and fake third-party sites) |
+| `docker-compose.yml` | postgres, redis, research-agent, backend |
 
-## API surface (backend)
+## API (backend)
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| POST | `/api/auth/register` | — | `{email, password, name}` → `{token, id, email, name}` |
-| POST | `/api/auth/login` | — | `{email, password}` → `{token, id, email, name}` |
-| GET  | `/api/auth/me` | Bearer | Current user |
-| GET  | `/api/conversations` | Bearer | List user's conversations |
-| POST | `/api/conversations` | Bearer | Create empty conversation |
-| GET  | `/api/conversations/{id}` | Bearer | One conversation |
-| PATCH| `/api/conversations/{id}` | Bearer | Rename — `{title}` |
-| DELETE | `/api/conversations/{id}` | Bearer | Delete |
-| GET  | `/api/conversations/{id}/messages` | Bearer | Full transcript with blocks |
-| POST | `/api/conversations/{id}/query` | Bearer | `{query}` → SSE stream |
+All `/api/conversations*` routes need `Authorization: Bearer <jwt>`. Cross-user access returns **404**. (Tokens in query strings are not accepted.)
 
-The Bearer token may also be passed as a `?token=` query param (used by SSE in some browsers).
-
-### SSE event types from `/query`
-
-| Event | Payload | When |
+| Method | Path | Description |
 |---|---|---|
-| `user_message` | `{id, createdAt}` | Right after the user message is persisted |
-| `checkpoint` | `{status, content, tool?}` | Per tool call from the agent |
-| `blocks` | `{status, data: ResearchResponse}` | Final assembled blocks (terminal) |
-| `clarification` | `{status, content}` | Agent needs more info (terminal) |
-| `error` | `{status, content}` | Failure (terminal) |
-| `persisted` | `{messageId}` | Backend has stored the assistant message |
+| POST | `/api/auth/register` | `{email, password (8–72 bytes), name}` → `{token, id, email, name}`; 409 duplicate; 429 throttled |
+| POST | `/api/auth/login` | `{email, password}` → same shape; 401 invalid; 429 throttled/locked |
+| GET | `/api/auth/me` | current user |
+| GET / POST | `/api/conversations` | list (newest first) / create |
+| GET / PATCH / DELETE | `/api/conversations/{id}` | one / rename `{title}` (204) / delete (204) |
+| GET | `/api/conversations/{id}/messages` | transcript with blocks, sources, follow-ups |
+| POST | `/api/conversations/{id}/query` | `{query ≤ 4000}` → SSE stream; 429 when rate/concurrency limited |
+| GET | `/health`, `/health/ready` | liveness / readiness (database) |
 
-## Database
+### SSE events from `/query`
 
-Tables are auto-created on backend startup via `Base.metadata.create_all`. Schema:
+`user_message` → `checkpoint`* → one of `blocks` · `clarification` · `error` → `persisted` (or `persist_error`).
+Error text is always a fixed, user-safe message; details are logged server-side. Full table in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-- `users(id UUID, email, password_hash, name, created_at)`
-- `conversations(id UUID, user_id, title, created_at, updated_at)`
-- `messages(id UUID, conversation_id, role, content, blocks JSONB, sources JSONB, follow_ups JSONB, created_at)`
+## Database and migrations
 
-## Adding a new block type
-
-1. Add the schema in `research-agent/src/research_agent/blocks/schemas.py` and emit it from `block_formatter.py`.
-2. Mirror the type in `frontend/src/types.ts`.
-3. Drop a new component in `frontend/src/components/blocks/<Name>Block.tsx`.
-4. Wire it into the switch in `BlockRenderer.tsx`.
-
-Until step 4, the new block type renders via `FallbackBlock` (JSON viewer) — so the UI never breaks on unknown blocks.
-
-## Security notes
-
-- JWT secret is `JWT_SECRET` env var (set a long random one in prod).
-- Passwords are bcrypted via `passlib`.
-- Auth gate covers everything under `/api/conversations`; `/api/auth/**` is open.
-- The frontend stores the JWT in `localStorage` for simplicity.
-- CORS is restricted to `CORS_ALLOWED_ORIGINS` (default `http://localhost:5173`).
-
-## Local development (without Docker)
+Schema is managed by Alembic (`backend/alembic/`). The backend container runs `python -m app.migrate` before serving
+(idempotent, advisory-locked, adopts databases created by the old `create_all` hook without touching data).
 
 ```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # edit DATABASE_URL etc.
-uvicorn app.main:app --reload --port 8080
+cd backend && DATABASE_URL=… JWT_SECRET=… alembic revision --autogenerate -m "describe change"   # then review the file
+cd backend && DATABASE_URL=… python -m app.migrate                                                # apply
 ```
+
+## Testing
+
+See [`TEST_PLAN.md`](TEST_PLAN.md) for what each suite covers, what is real versus mocked, and the known gaps.
+
+```bash
+# isolated services (never the project's compose volumes) — see AGENTS.md
+(cd backend && .venv/Scripts/python.exe -m pytest)                       # 144 tests, real PostgreSQL
+(cd research-agent && .venv/Scripts/python.exe -m pytest)                # 379 tests, real Redis, no real network
+python e2e/run.py && python e2e/failure_tests.py                         # browser journey + real outages
+(cd frontend && npx tsc --noEmit && npx vite build)
+```
+
+## Local development without Docker
+
+```bash
+cd backend && uv venv --python 3.12 .venv && uv pip install --python .venv/Scripts/python.exe -r requirements-dev.txt
+cp .env.example .env     # set DATABASE_URL, JWT_SECRET, AGENT_API_KEY
+.venv/Scripts/python.exe -m app.migrate && .venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8080
+```
+
+The agent: `cd research-agent && uv venv --python 3.12 .venv && uv pip install --python .venv/Scripts/python.exe -e .`, then run
+`uvicorn research_agent.server:create_app --factory --port 8004` with the same `AGENT_API_KEY`.
+
+## Adding a block type
+
+1. Schema in `research-agent/src/research_agent/blocks/schemas.py`; emit it from `block_formatter.py` (+ tests).
+2. Mirror the type in `frontend/src/types.ts`.
+3. Component in `frontend/src/components/blocks/<Name>Block.tsx`.
+4. Case in `BlockRenderer.tsx`. Until then the block renders through `FallbackBlock`, so unknown types never break the UI.
+
+## Security summary
+
+Header-only JWT with required strong secret, rate limiting and lockout, ownership-checked data access, fixed error messages,
+security headers and body limits, an internal-token-protected agent that is not published, an SSRF guard for all fetched URLs,
+untrusted-content handling for prompt injection, and reproducible migrations. Open items and accepted risks are listed honestly
+in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
 
 ## Development tips
 
-- Backend logs: `docker compose logs -f backend`
-- Agent logs:   `docker compose logs -f research-agent`
-- Reset DB:     `docker compose down -v && docker compose up -d`
-- Health:       `curl http://localhost:8080/health` and `curl http://localhost:8004/health/ready`
+- Logs: `docker compose logs -f backend` / `research-agent`
+- Health: `curl http://127.0.0.1:8080/health/ready`
+- **Never** run `docker compose down -v` against your real stack — it deletes the database volume.
