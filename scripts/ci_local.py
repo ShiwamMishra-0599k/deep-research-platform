@@ -63,6 +63,12 @@ def job_backend():
 
 
 def job_agent():
+    for name, extra in (("requirements.lock", []), ("requirements-dev.lock", ["--group", "dev"])):
+        run(f"agent: {name} is up to date with pyproject.toml",
+            ["uv", "pip", "compile", "pyproject.toml", *extra, "--universal", "--python-version", "3.12", "--generate-hashes",
+             "-o", name], cwd=ROOT / "research-agent")
+    run("agent: lockfiles unchanged by regeneration", ["git", "diff", "--exit-code", "--", "requirements.lock", "requirements-dev.lock"],
+        cwd=ROOT / "research-agent")
     run("agent: ruff", [APY, "-m", "ruff", "check", "src", "tests"], cwd=ROOT / "research-agent")
     run("agent: pytest", [APY, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=ROOT / "research-agent")
 
@@ -77,6 +83,8 @@ def job_frontend():
 
 def job_lint():
     run("lint: ruff (backend, e2e, scripts)", uvx("ruff", "check", "--config", "ruff.toml", "backend", "e2e", "scripts"))
+    run("lint: workflow passes actionlint", ["uvx", "--from", "actionlint-py", "actionlint.exe", ".github/workflows/ci.yml"])
+    run("lint: workflow + dependabot pass the GitHub schemas", ["uvx", "check-jsonschema", "--builtin-schema", "vendor.github-workflows", ".github/workflows/ci.yml"])
 
 
 def job_docker():
@@ -107,11 +115,7 @@ def job_security():
     run("security: bandit", uvx("bandit", "-q", "-r", "backend/app", "backend/alembic", "research-agent/src"))
     run("security: pip-audit backend", uvx("pip-audit", "-r", "backend/requirements.txt", "--no-deps", "--disable-pip",
                                            "--ignore-vuln", "PYSEC-2026-4298"))
-    freeze = subprocess.run(["uv", "pip", "freeze", "--python", str(APY)], capture_output=True, text=True).stdout
-    req = ROOT / "e2e" / "out" / "agent-freeze.txt"
-    req.parent.mkdir(parents=True, exist_ok=True)
-    req.write_text("\n".join(ln for ln in freeze.splitlines() if not ln.startswith("-e") and "lumen-research-agent" not in ln))
-    run("security: pip-audit agent", uvx("pip-audit", "-r", str(req), "--no-deps", "--disable-pip"))
+    run("security: pip-audit agent (locked set)", uvx("pip-audit", "-r", "research-agent/requirements.lock", "--no-deps", "--disable-pip"))
 
 
 JOBS = {"backend": job_backend, "agent": job_agent, "frontend": job_frontend, "lint": job_lint,

@@ -87,11 +87,18 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: research-agent/pyproject.toml
-      - name: Install (editable + the dev dependency group: pytest, ruff; `--group` needs pip >= 25.1)
+          cache-dependency-path: research-agent/requirements-dev.lock
+      - name: Install from the hash-pinned lockfile (reproducible; --require-hashes rejects anything unlisted)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e research-agent --group research-agent/pyproject.toml:dev
+          pip install --require-hashes -r research-agent/requirements-dev.lock
+          pip install --no-deps -e research-agent
+      - name: Lockfiles are up to date with pyproject.toml
+        working-directory: research-agent
+        run: |
+          pip install uv==0.13.5
+          uv pip compile pyproject.toml --universal --python-version 3.12 --generate-hashes -o requirements.lock
+          uv pip compile pyproject.toml --group dev --universal --python-version 3.12 --generate-hashes -o requirements-dev.lock
+          git diff --exit-code -- requirements.lock requirements-dev.lock
       - name: Lint
         working-directory: research-agent
         run: ruff check src tests
@@ -137,6 +144,12 @@ jobs:
       - run: pip install ruff==0.17.5
       - name: ruff (backend, e2e, scripts; the agent is linted in its own job)
         run: ruff check --config ruff.toml backend e2e scripts
+      - name: Validate the workflow files themselves (schema + actionlint)
+        run: |
+          pip install actionlint-py==1.7.12.25 check-jsonschema==0.33.3
+          actionlint .github/workflows/ci.yml
+          check-jsonschema --builtin-schema vendor.github-workflows .github/workflows/ci.yml
+          check-jsonschema --builtin-schema vendor.dependabot .github/dependabot.yml
 
   docker:
     name: Docker (compose validation + image builds)
@@ -183,8 +196,5 @@ jobs:
         run: bandit -q -r backend/app backend/alembic research-agent/src
       - name: "pip-audit backend (python-jose PYSEC-2026-4298 is an accepted, documented exception: SECURITY_REVIEW.md)"
         run: pip-audit -r backend/requirements.txt --no-deps --disable-pip --ignore-vuln PYSEC-2026-4298
-      - name: pip-audit research-agent (resolved dependency set)
-        run: |
-          pip install -e research-agent
-          pip freeze --exclude-editable > /tmp/agent-freeze.txt
-          pip-audit -r /tmp/agent-freeze.txt --no-deps --disable-pip
+      - name: pip-audit research-agent (the exact locked set that ships in the image)
+        run: pip-audit -r research-agent/requirements.lock --no-deps --disable-pip

@@ -7,11 +7,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Reproducible install: every dependency (and transitive dependency) is pinned to a hash in requirements.lock.
+# Regenerate with:  uv pip compile pyproject.toml --universal --python-version 3.12 --generate-hashes -o requirements.lock
+COPY requirements.lock ./
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --require-hashes -r requirements.lock
+
 COPY pyproject.toml README.md ./
 COPY src/ src/
-
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir .
+# Dependencies are already installed from the lock; install only the project itself.
+RUN pip install --no-cache-dir --no-deps .
 
 USER lumen
 EXPOSE 8004
