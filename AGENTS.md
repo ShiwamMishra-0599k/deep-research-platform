@@ -14,7 +14,7 @@ Read this before changing anything. Then read `ARCHITECTURE.md` and `SECURITY_RE
 
 ## Security invariants (each has a regression test — keep them passing)
 
-- Auth is **header-only** bearer. Never accept tokens from query strings or cookies without a full, reviewed migration.
+- Sessions are **HttpOnly cookies** (access 15 min, rotating refresh) with server-side revocation. Never accept tokens from query strings, never put a credential or identity in `localStorage`/`sessionStorage`, never expose the access/refresh cookie to script (only the CSRF cookie is readable), and never skip the CSRF + Origin checks on a cookie-authenticated unsafe request. A present-but-invalid Bearer credential must never fall back to a cookie. Design: `ARCHITECTURE.md` section 3a.
 - Conversation/message access is always filtered by the authenticated user; cross-user access returns **404**.
 - **Never send raw exception text, upstream response bodies, stack traces or key material to a client** (HTTP or SSE). Log server-side; send fixed messages.
 - The research agent must stay unpublished and require `X-Internal-Token`; it must fail closed if `AGENT_API_KEY` is unset.
@@ -50,7 +50,7 @@ docker run -d --name lumen-test-redis -p 127.0.0.1:56379:6379 redis:7-alpine
 | Backend tests | `cd backend && .venv/Scripts/python.exe -m pytest` |
 | Agent tests | `cd research-agent && .venv/Scripts/python.exe -m pytest` |
 | Agent lint | `cd research-agent && .venv/Scripts/python.exe -m ruff check src tests` |
-| Frontend gates | `cd frontend && npx tsc --noEmit && npx vite build` |
+| Frontend gates | `cd frontend && npx tsc --noEmit && npm run test:coverage && npx vite build` (Node >= 22; coverage thresholds 70/60/70/70 are enforced) |
 | New migration | `cd backend && DATABASE_URL=… JWT_SECRET=… alembic revision --autogenerate -m "…"` then review it |
 | Compose validation | `JWT_SECRET=… AGENT_API_KEY=… POSTGRES_PASSWORD=… docker compose config -q` |
 | Generate secrets | `python scripts/init_env.py` (git-ignored `.env`; never overwrites) |

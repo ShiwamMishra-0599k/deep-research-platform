@@ -58,9 +58,9 @@ checked once against the real services.
 | F3 | Low | Expired token mid-stream, 429, 5xx all showed "Connection lost" | **Fixed** — 401 returns to sign-in; specific messages for 429/404/413/422/5xx |
 | F4 | Low | Leaflet CSS loaded from unpkg without Subresource Integrity | **Fixed** — SRI hash added (verified equal to the published value) |
 | F5 | High (deps) | axios / follow-redirects / form-data advisories (production dependencies) | **Fixed** — `npm audit fix` within semver ranges |
-| F6 | Moderate (deps) | react-router open redirect via `<Link>`/`useNavigate` with attacker-controlled paths | **Accepted** — the app only navigates to fixed routes and server-generated UUIDs; the fix is a breaking major upgrade of a frozen frontend |
+| F6 | Moderate (deps) | react-router open redirect via `<Link>`/`useNavigate` (GHSA-wrjc-x8rr-h8h6) and SSR `deserializeErrors` (GHSA-337j-9hxr-rhxg) | **Fixed** - upgraded to react-router-dom 7.18.5 once the frontend had a behavioural test suite; `npm audit --omit=dev` reports 0 vulnerabilities. The upgrade exposed a latent retry loop (R15) |
 | F7 | Dev-only | Vite/esbuild/babel/browserslist advisories (dev server/build tooling, none ship to users) | **Accepted** — run the dev server only on trusted networks |
-| F8 | Medium | JWT stored in `localStorage` (readable by any XSS) | **Mitigated / decision below** |
+| F8 | Medium | JWT stored in `localStorage` (readable by any XSS) | **Fixed** - HttpOnly cookie sessions (section 2). No credential or identity is written to web storage; pre-migration keys are purged. XSS can still *use* the session from the page (HttpOnly stops theft, not use) |
 
 ### Infrastructure
 
@@ -94,27 +94,40 @@ that guarantee: the Python services. The browser in the integration run still lo
 | R8 | Medium | The first rotation script design verified over loopback, where `pg_hba.conf` is `trust`, so it could not detect that passwords were not being checked, and it only found out after changing the password | **Fixed** (found by the rehearsal) — verification from a second container on an internal network, and a preflight *before* any change |
 | R9 | Low | CI workflow would have failed: unquoted `: ` in a step name (invalid YAML) and the agent's dev tools live in a PEP 735 dependency group that `pip install -e` ignores | **Fixed** (found by schema/actionlint validation and a clean Linux rehearsal) |
 | R10 | Low | Test limiter names were fixed strings with up-to-1-hour windows, so state persisted across runs | **Fixed** — unique names; suite passes repeatedly |
-| R11 | Moderate (deps) | New react-router advisory GHSA-337j-9hxr-rhxg (SSR hydration `deserializeErrors`) | **Accepted** — the app has no server-side rendering; same upgrade path as F6. The CI gate fails only on high/critical |
+| R11 | Moderate (deps) | react-router advisory GHSA-337j-9hxr-rhxg (SSR hydration) | **Fixed** with F6 (no longer an accepted exception) |
+| R12 | High (deps) | `python-jose` 3.5.0 (last release) carries PYSEC-2026-4298 affecting every version, with no fix | **Fixed** - replaced by PyJWT 2.15.1 (no known advisories), HS256 pinned, `exp`/`sub`/`iat`/`aud`/`iss` required; all forged-token tests unchanged. `pip-audit` for the backend now runs with **no ignored vulnerabilities** |
+| R13 | Medium | Cookie sessions: a reload after the 15-minute access cookie expired would have signed the user out although the refresh session (24 h idle window) was alive | **Fixed** (found while reviewing the boot path) - boot refreshes once and retries once; 5 regression tests, mutation-proven; browser check deletes the access cookie and reloads |
+| R14 | Medium | Cookie sessions: a pre-migration `localStorage` session would have been dropped (forced re-login) or its token left readable | **Fixed** - exchanged once through `/auth/session/upgrade`, then both legacy keys are purged unconditionally |
+| R15 | Medium | `ConversationSidebar` re-requested a conversation that failed to load in an endless microtask loop under React Router 7 (navigation is applied in a transition, so the redirect home never committed). v6 only avoided it by timing | **Fixed** - the id is marked before the request; regression test; removing the guard hangs the suite (caught) |
 
-## 2. Decision: HttpOnly-cookie sessions — evaluated, deferred
+## 2. Decision: HttpOnly-cookie sessions - implemented (migration window open)
 
-The case for: an XSS bug could steal a `localStorage` token. The case against doing it now:
-1. It is a cross-cutting migration (auth store, axios, SSE client, CORS with credentials, CSRF tokens on every state-changing route), and the brief forbids a half-implemented authentication migration.
-2. The frontend is frozen and has no unit-test framework to guard a rewrite of its auth layer.
-3. Current XSS exposure is low: React escapes by default; Markdown is rendered without raw HTML; link URLs are sanitised by `react-markdown`; no `dangerouslySetInnerHTML`; hostile markdown/links were exercised end to end.
-4. Token theft is bounded: 24 h expiry, no PII inside, header-only (never in URLs).
+Full plan and test matrix: `docs/COOKIE_AUTH_MIGRATION_PLAN.md`. What was built, mapped to the approved policy:
 
-Recommended path (see `TASKS.md`): `Set-Cookie: HttpOnly; Secure; SameSite=Lax` access cookie + double-submit CSRF token header,
-CORS with credentials on an explicit origin, short access / rotating refresh tokens, server-side revocation, all in one milestone with
-frontend tests. Until then, serve the frontend with a strict CSP (`default-src 'self'`; allow only the Leaflet/fonts/tile hosts).
+| Policy | Implementation |
+|---|---|
+| Same-origin architecture | The browser talks to one origin: production reverse proxy (`deploy/nginx/lumen.conf.example`) and, in development, the Vite proxy (`VITE_PROXY_TARGET`). CORS with credentials is not needed; the frontend only sets `withCredentials` for a genuinely cross-origin `VITE_API_URL` |
+| Access session 15 min | Short-lived HS256 JWT in an **HttpOnly** cookie (`lumen_at`, `Path=/`, `Max-Age=900`) carrying a session id; every request re-checks that the session is live, so revocation is immediate |
+| Refresh max 7 days, rotation on use | Opaque 256-bit refresh token in an HttpOnly cookie scoped to `Path=/api/auth`, **SameSite=Strict**. Only its hash is stored. Rotated by an atomic compare-and-swap; the previous hash is kept to detect replay. A second tab racing the rotation inside a 10 s grace gets 409 and retries; a replay outside the grace revokes the session |
+| 24 h inactivity | `session_idle_hours=24` (sliding: extended at every refresh, i.e. every ~15 min of use) plus `session_absolute_days=7` (hard cap) |
+| Revoke on logout | `/auth/logout` revokes server-side and clears the cookies; `/auth/logout-all` revokes every session of the user. Verified in the browser: an access cookie copied before logout is rejected afterwards |
+| HttpOnly + Secure in production | `COOKIE_SECURE=true` adds `Secure` and the `__Host-` / `__Secure-` name prefixes; `ENVIRONMENT=production` refuses to start without it |
+| SameSite=Lax unless stricter needed | Access and CSRF cookies are Lax (top-level navigation into the app must keep the session); the refresh cookie is Strict because only same-site XHR ever needs it |
+| CSRF protection | Per-session HMAC token (key `CSRF_SECRET`) in a script-readable cookie, echoed in `X-CSRF-Token` on every state-changing request and compared in constant time. Cookie-authenticated unsafe requests without it get 403 |
+| Origin validation | `OriginCheckMiddleware` rejects unsafe `/api/` requests whose `Origin` is not exactly an allowed origin (`null` is rejected); with no `Origin`, `Sec-Fetch-Site` must be same-origin/same-site/none |
+| Do not weaken auth or break sessions | A Bearer credential that is present but bad is never retried as a cookie. `AUTH_MODE=dual` (default) keeps old clients working; the new frontend sends `X-Auth-Mode: cookie` so the server stops returning a body token |
+
+Incompatibilities flagged before building (and how they were handled): the SSE client is `fetch`-based, not `EventSource`, so it carries the CSRF header and does one refresh-and-reopen on 401; `localStorage` sessions needed a one-time upgrade path; a Bearer token minted before the window cannot be revoked server-side (it simply expires, at most 24 h).
+
+Remaining cookie-related risks: (1) XSS is not eliminated, only token *theft* is (injected script can still call the API as the user, so the CSP and the no-raw-HTML rule stay important). (2) `AUTH_MODE=dual` is the shipped default; moving production to `cookie` mode (stage 4) is a deliberate, separate step after the window and has **not** been done. (3) `CSRF_SECRET` rotation invalidates outstanding CSRF tokens (users re-authenticate or refresh). (4) Browsers other than headless Edge were not driven.
 
 ## 3. Residual risks and accepted limits
 
-- **During a Redis outage the default (fail-local) ceiling is per replica**, i.e. replicas × limit, until Redis returns. Use `RATE_LIMIT_FAIL_MODE=closed` if that is unacceptable for login/research.
-- **Redis eviction.** Rate-limit counters share a Redis (`allkeys-lru`, 256 MB) with the agent's cache. A flood of cache keys could in theory evict counters. Give limits their own instance if this matters.
+- **Production fails closed on a Redis outage.** `ENVIRONMENT=production` refuses to start unless `RATE_LIMIT_FAIL_MODE=closed` and `REDIS_URL` is set, so login, registration and research return 503 instead of degrading to per-replica limits. Development defaults to a bounded local fallback (ceiling = replicas x limit); the generic API limiter never fails closed.
+- **Redis eviction.** Rate-limit counters and the agent cache must not share an eviction pool in production: under `allkeys-lru` a cache flood could evict counters. The isolation plan (separate instance or database with `noeviction` for limits, `allkeys-lru` for cache, memory alarms) is in `docs/AWS_SECRETS_PLAN.md` section 7. It is a plan; no Redis was provisioned.
 - **`TRUSTED_PROXY_CIDRS` is a trust decision.** Listing a range you do not control lets those hosts choose the client identity; leave it empty unless you operate the proxy. With it empty, all users behind one proxy share one per-IP bucket (strict, never spoofable).
 - **Rotating `JWT_SECRET` changes the HMAC of rate-limit keys**, resetting current counters (harmless; they are short-lived).
-- **No token revocation** before the 24 h expiry; no refresh tokens; no email verification or password reset; no account/data deletion endpoint.
+- **Sessions:** server-side revocation, rotation and idle/absolute expiry now exist for cookie sessions (section 2). Expired `auth_sessions` rows are not purged yet (`purge_expired_sessions` exists but is not scheduled). Still absent: email verification, password reset, account/data deletion endpoint, and revocation of legacy Bearer tokens before their 24 h expiry.
 - **No per-user quotas** on conversation count or stored message size (a per-message blocks cap exists).
 - **Prompt injection is mitigated, not solved.** An attacker-controlled search result can still appear as a Sources chip (the URL is real search-result provenance) and can still sway wording.
 - **DNS-rebinding defence** is implemented by IP pinning and tested with simulated resolvers; it has not been tried against live adversarial DNS.
@@ -122,12 +135,12 @@ frontend tests. Until then, serve the frontend with a strict CSP (`default-src '
 - **Search/LLM providers see user queries** (Exa/Tavily/DuckDuckGo/OpenRouter/OpenAI). No PII filtering is applied. Review provider terms before real users.
 - **TLS** is not terminated by compose; deploy behind a TLS proxy and set `ENABLE_HSTS=true`.
 - **Container images** were built and run non-root but not scanned (no Trivy/Grype run); base images are not digest-pinned.
-- **`python-jose` advisory PYSEC-2026-4298** (no fixed release): not exploitable here — it needs a public key used as an HMAC secret, and verification pins `algorithms=["HS256"]` with a random symmetric secret. Prefer migrating to a maintained JWT library in a dedicated change.
+- **Dependency advisories (re-reviewed 2026-11-15).** Backend (`pip-audit`, no ignores), agent (`pip-audit` on the hash-locked files) and frontend production dependencies (`npm audit --omit=dev`) report nothing. Documented exception, dev tooling only (none ships to users): vite/esbuild/vitest/babel/browserslist advisories in `npm audit`, accepted while the dev server runs only on trusted networks. **Revisit all of it before deployment.**
 - The agent's default bind address (`0.0.0.0`) is intentional inside the container (bandit B104); the port is not published.
 
 ## 4. Not reviewed / not tested
 
-The GitHub Actions workflow has **not been executed on GitHub** (that needs a push); it is schema- and actionlint-validated, and every job's commands ran in clean Linux containers. The credential rotation was **rehearsed on a synthetic legacy volume; no real volume was rotated** (the only same-named volume belongs to another project's live stack). Real LLM and paid search providers; HTTPS/TLS termination; multi-replica behaviour; load and soak; Firefox/Safari/real mobile
+The GitHub Actions workflow has **not been executed on GitHub** (the push is blocked: the token lacks the `workflow` scope); it is schema- and actionlint-validated, and every job's commands ran in clean Linux containers. The credential rotation was **rehearsed on a synthetic legacy volume; no real volume was rotated** (the only same-named volume belongs to another project's live stack). Real LLM and paid search providers; HTTPS/TLS termination; multi-replica behaviour; load and soak; Firefox/Safari/real mobile
 devices; accessibility with a screen reader (contrast, focus order and semantics were checked programmatically); the browser's
 behaviour on a hostile network; penetration testing by a third party.
 

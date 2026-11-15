@@ -6,22 +6,23 @@ What is tested, how, against what, and — just as important — what is **not**
 
 | Level | Suite | Count | PostgreSQL | Redis | Agent | LLM | External sites |
 |---|---|---|---|---|---|---|---|
-| Backend unit + API | `backend/tests` | **230** | **real** (isolated container) | **real** (limits, db 3) | scripted fake | – | – |
+| Backend unit + API | `backend/tests` | **353** | **real** (isolated container) | **real** (limits, db 3) | scripted fake | – | – |
 | Agent unit + service | `research-agent/tests` | **379** | – | **real** (isolated) + dead/hanging cases | real code, fake `get_agent` for SSE | mocked | mocked; non-loopback sockets blocked |
-| Full-stack integration (browser) | `e2e/run.py` → `scenario.mjs` | **42** checks | **real** | **real** | **real** (LangGraph + 8 tools) | **fake server** (`e2e/fake_llm.py`) | **faked** (`e2e/run_agent_fake_internet.py`), sealed at socket level |
+| Full-stack integration (browser) | `e2e/run.py` → `scenario.mjs` | **61** checks | **real** | **real** | **real** (LangGraph + 8 tools) | **fake server** (`e2e/fake_llm.py`) | **faked** (`e2e/run_agent_fake_internet.py`), sealed at socket level |
 | Failure & recovery | `e2e/failure_tests.py` | **39** checks | **real**, container stopped/started | **real**, stopped/started | **real**, killed/relaunched; plus a rogue agent | fake | faked, sealed |
 | Distributed rate limiting | `e2e/multi_instance_tests.py` | **17** checks | **real** | **real**, stopped/started | **real** (3 backend processes + 1 fail-closed) | fake | faked, sealed |
 | DB credential rotation rehearsal | `e2e/rotation_rehearsal.py` | **19** checks | **real**, synthetic legacy volume | – | – | – | – |
 | CI commands | `scripts/ci_local.py` + clean Linux containers | **16** steps (+ Linux runs of the backend, agent and frontend jobs) | service containers | service containers | – | – | – |
 | Deployment smoke | manual compose run (project `lumen-verify`) | see §4 | real | real | real image | – (no query run) | – |
-| Frontend gates | `tsc`, `vite build` | pass | – | – | – | – | – |
+| Frontend unit + component | `frontend/src/**/*.test.ts(x)` (Vitest, jsdom, Testing Library) | **253** (coverage 99.7 / 94.73 / 100 / 99.7; thresholds 70/60/70/70 enforced) | – (axios adapter mocked) | – | – | – | – |
+| Frontend gates | `tsc`, `vite build`, `npm audit --omit=dev` | pass / pass / 0 vulnerabilities | – | – | – | – | – |
 
 Labels matter: the integration suites exercise the real application stack end to end **with a fake LLM and fake third-party
 sites**. They are not tests of live providers.
 
 ## 2. Suites in detail
 
-**Backend (230; the previous milestone's 144 plus 86 new):** `test_auth` 48 (registration, validation, duplicate/case, concurrency race, login, timing-equal responses,
+**Backend (353; was 144, then 230 after rate limiting, then +123 for cookie sessions and production configuration):** the cookie/session suites are `test_sessions` (rotation compare-and-swap, reuse detection, grace window, idle/absolute expiry, revocation), `test_csrf` (missing/forged/other-session tokens, Origin and `Sec-Fetch-Site` rules, Bearer-present-but-bad never falls back, `AUTH_MODE` matrix, cookie flags) and `cookie_helpers`; `test_config` covers the production validator (fail-closed Redis, HTTPS-only CORS, Secure cookies, secret strength, DB URL from components); `test_deploy_templates` validates the AWS/nginx templates. JWT forgery tests run on PyJWT. Original suites: `test_auth` 48 (registration, validation, duplicate/case, concurrency race, login, timing-equal responses,
 IP throttle, lockout, token expiry/forgery incl. `alg:none`/wrong aud/iss/HS512/tampered, query-token rejection, secret strength);
 `test_conversations` 20 (CRUD, ownership/IDOR on every route, cross-user history isolation, cascade, SQL-injection strings);
 `test_http_security` 15 (headers, 413 declared/streamed, CORS, no docs, no leaks); `test_research_sse` 28 (framing, ordering,
@@ -36,11 +37,7 @@ blocks/checkpoints/follow-ups 49; prompt-injection and forged-row cases 30; SSE 
 timeout, concurrency); server 25 (auth, limits, no CORS, protected ops endpoints); Redis 12 (real, dead, hanging); graph 5.
 The author mutation-checked six controls (private-IP, error caching, planted sources, auth bypass, QL injection, error text): the suite failed each time.
 
-**Integration scenario (42):** register → progress checkpoints streamed live → answer with markdown, map, table, insight cards
-and citations → rows verified in PostgreSQL → reload restores blocks → second conversation → switch → rename → clarification →
-LLM outage message with no internals → error persisted → delete (accessible dialog) → ask again after deleting the active chat →
-expired token → back to sign-in → login → logout → **second person on the same tab sees nothing of the first** → protected-route
-redirect → bad-password message → no unexpected console errors → hermetic check.
+**Integration scenario (61):** register -> cookie jar inspected over CDP (access/refresh/CSRF present; access `HttpOnly` + `SameSite=Lax` + `Path=/` + ~15 min; refresh `HttpOnly` + `SameSite=Strict` + `Path=/api/auth`; CSRF readable; page script cannot see the HttpOnly ones; `localStorage`/`sessionStorage` empty) -> progress checkpoints streamed live over a cookie+CSRF-authenticated SSE POST -> answer with markdown, map, table, insight cards and citations -> rows verified in PostgreSQL -> reload keeps the session -> **access cookie deleted (what the browser does at 15 min) and reloaded: still signed in, refresh token rotated** -> second conversation -> switch -> rename -> a state-changing request without the CSRF header gets 403 -> clarification -> LLM outage message with no internals -> error persisted -> delete (accessible dialog) -> ask again after deleting the active chat -> **real cross-site attacker pages on a different site (`localhost` vs `127.0.0.1`): auto-submitting form CSRF, login CSRF, credentialed fetch; nothing created, the victim stays themselves, the credentialed read is blocked** -> `logout-all` mid-query: refresh refused, back to sign-in, cookies cleared -> login -> logout clears all three cookies -> **an access cookie copied before logout is rejected afterwards** -> a pre-migration `localStorage` session is upgraded to cookies and purged -> **second person on the same tab sees nothing of the first** -> protected-route redirect -> bad-password message -> no unexpected console errors -> hermetic check. Headless Edge only.
 
 **Failure suite (39):** Redis down/restored; search provider down (partial result); invalid upstream JSON; LLM down; agent killed
 and relaunched; **PostgreSQL stopped and restarted with no data loss**; request timeout; rate limit; 4 abrupt browser
@@ -67,9 +64,9 @@ python e2e/failure_tests.py  # real outages (stops/starts ONLY lumen-test-pg / l
 backend/.venv/Scripts/python.exe e2e/multi_instance_tests.py   # 3 backends sharing Redis; Redis outage and recovery
 backend/.venv/Scripts/python.exe e2e/rotation_rehearsal.py     # creates and removes ONLY lumen-rehearsal-* resources
 python scripts/ci_local.py   # every CI job's commands, locally
-(cd frontend && npx tsc --noEmit && npx vite build)
+(cd frontend && npx tsc --noEmit && npm run test:coverage && npx vite build)   # Node >= 22
 uvx ruff check --config ruff.toml backend e2e/*.py ; (cd research-agent && .venv/Scripts/python.exe -m ruff check src tests)
-uvx bandit -r backend/app research-agent/src ; uvx pip-audit -r backend/requirements.txt ; (cd frontend && npm audit --omit=dev)
+uvx bandit -r backend/app research-agent/src ; uvx pip-audit -r backend/requirements.txt --no-deps --disable-pip ; (cd frontend && npm audit --omit=dev)
 ```
 
 Safety: the backend suite refuses to run unless the database is local and named `*_test`; the e2e scripts drop only their own
@@ -104,7 +101,8 @@ F9 persistence ✔ (incl. disconnect) · F10 failure handling ✔ (real outages)
 - **Rate-limit load behaviour** beyond an 80-thread burst; Redis memory under key-spraying attacks beyond the bounded-structure reasoning.
 - **Rotation against a production-sized database** (the rehearsal DB has ~36 rows) and against PostgreSQL versions other than 16.
 
-- **No frontend unit/component tests** — there is no test framework in the project and adding one needs approval. The browser scenario covers the main flows; individual components, a11y beyond programmatic contrast/focus, and error edge states are not unit-tested.
+- **Frontend tests are jsdom-based**: real cookie policy, layout, the real Leaflet map, real SSE transport and cross-browser behaviour are covered only by the single-browser (headless Edge) e2e run; see `docs/FRONTEND_TESTING_PLAN.md` for the table of what cannot be covered. Firefox, Safari, real devices and screen readers are untested.
+- **Cookie sessions:** `AUTH_MODE=cookie` (stage 4) and the expired-session cleanup job are not implemented, so they are not tested; concurrent multi-tab refresh is tested at the API level (409 grace) and in unit tests, not with several real tabs racing.
 - Real LLM/search providers; paid-provider behaviour (rate limits, quotas, latency, cost).
 - Browsers other than Chromium-based Edge; real devices; screen readers.
 - TLS, reverse proxy, multi-replica, load/soak/performance, memory growth, very long conversations.

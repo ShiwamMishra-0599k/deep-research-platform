@@ -11,7 +11,7 @@ threats and mitigations in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
 ┌────────────────────┐     ┌──────────────────────────────────────────────────────────────┐
 │ React SPA          │     │  FastAPI backend ──X-Internal-Token──► Research agent        │
 │  Vite · TypeScript │ TLS │   auth · persistence      (not published)   FastAPI          │
-│  JWT in localStorage├────►│   SSE bridge · limits                       Deep Agents loop │
+│ HttpOnly cookies   ├────►│   SSE bridge · limits                       Deep Agents loop │
 └────────────────────┘     │        │                                    8 tools          │
         ▲                  │        ▼                                      │      │        │
         │ SSE              │   PostgreSQL 16                          Redis 7   external    │
@@ -30,8 +30,8 @@ threats and mitigations in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
 
 ## 2. Request lifecycle (research query)
 
-1. `POST /api/conversations/{id}/query` with `Authorization: Bearer <jwt>`.
-2. Backend validates the token, applies per-user rate and concurrency limits, verifies **conversation ownership**, persists the user message and loads history (one transaction, off the event loop).
+1. `POST /api/conversations/{id}/query` (same origin) with the HttpOnly access cookie and the `X-CSRF-Token` header. (Legacy clients may still send `Authorization: Bearer`; see section 3a.)
+2. Backend validates the cookie, the live server-side session and the CSRF token, applies per-user rate and concurrency limits, verifies **conversation ownership**, persists the user message and loads history (one transaction, off the event loop).
 3. Backend opens a streaming request to the agent (`X-Internal-Token`, no redirects, bounded timeouts).
 4. Agent runs the LangGraph/Deep Agents loop; each tool call becomes a `checkpoint`; results are converted into typed blocks.
 5. Backend validates each agent event (known names, JSON object, block shape, size caps), **replaces any agent-supplied error text with a fixed message**, forwards it to the browser, and records the outcome.
@@ -55,15 +55,34 @@ Failure wording is stable: agent error / protocol error → "The research servic
 ## 3. Authentication & sessions
 
 - Passwords: bcrypt (passlib), 8–72 bytes (bcrypt's real limit; longer is rejected, not truncated).
-- Tokens: HS256 JWT with `sub` = user UUID, `iss`, `aud`, `iat`, `exp` (24h default), `jti`. Algorithm pinned; all claims required.
-- Header-only bearer auth (the old `?token=` query parameter was removed).
+- Tokens: HS256 JWT (PyJWT) with `sub` = user UUID, `iss`, `aud`, `iat`, `exp`, `jti`; cookie access tokens (15 min) also carry `sid`. Algorithm pinned; all claims required. Legacy Bearer tokens (24 h) are still accepted in `dual`/`bearer` mode.
+- No credential in URLs (the old `?token=` query parameter was removed).
 - Login is rate limited per IP and locked per email after repeated failures (shared across instances via Redis, §6); unknown emails take the same time and return the same response as wrong passwords.
-- **Decision on HttpOnly cookies:** evaluated and deferred — see `SECURITY_REVIEW.md` §Session model. No half-migration exists in the code.
+- **HttpOnly cookie sessions are implemented** (section 3a; decisions in `SECURITY_REVIEW.md` section 2, plan in `docs/COOKIE_AUTH_MIGRATION_PLAN.md`).
+
+## 3a. Sessions and cookies
+
+One origin: the browser reaches the SPA and `/api` through the same host (production reverse proxy; Vite proxy in development).
+
+| Cookie | Content | Flags |
+|---|---|---|
+| `lumen_at` (`__Host-lumen_at` in production) | 15-minute HS256 JWT with a session id (`sid`) | HttpOnly, SameSite=Lax, Path=/, Secure in production |
+| `lumen_rt` (`__Secure-lumen_rt`) | opaque 256-bit refresh token (only its hash is stored) | HttpOnly, SameSite=Strict, Path=/api/auth, Secure in production |
+| `lumen_csrf` (`__Host-lumen_csrf`) | per-session HMAC token | readable by script on purpose; SameSite=Lax |
+
+* `auth_sessions` table (migration 0003): hash of the current and previous refresh token, `idle_expires_at` (24 h, extended at each refresh), `absolute_expires_at` (7 days), `revoked_at` + `revoked_reason`.
+* Every request authenticated by the access cookie also checks that its session is live, so logout and `logout-all` take effect immediately.
+* Refresh rotates the token with a compare-and-swap. A concurrent tab inside a 10 s grace gets 409 and retries; a replay outside the grace revokes the session.
+* Unsafe methods need `X-CSRF-Token` equal to the HMAC for that session, and pass `OriginCheckMiddleware` (`Origin` must be an allowed origin; without it `Sec-Fetch-Site` must be same-origin/same-site/none).
+* `AUTH_MODE`: `bearer` (legacy only) | `dual` (default; cookies plus legacy Bearer, body token suppressed when the client sends `X-Auth-Mode: cookie`) | `cookie`. A Bearer credential that is present but invalid is never retried as a cookie.
+* Frontend: no token in web storage; boot calls `/auth/me` (refreshing once if the access cookie expired) behind a loading gate; legacy `localStorage` sessions are upgraded once via `/auth/session/upgrade` and purged.
 
 ## 4. Data model
 
 ```
 users(id uuid pk, email unique, password_hash, name, created_at)
+  ├─< auth_sessions(id uuid pk, user_id fk→users cascade, refresh_hash, prev_refresh_hash, idle_expires_at, absolute_expires_at,
+  │                 revoked_at, revoked_reason, created_at, last_used_at, rotated_at, user_agent, ip_hash)
   └─< conversations(id uuid pk, user_id fk→users cascade, title, created_at, updated_at)
         └─< messages(id uuid pk, conversation_id fk→conversations cascade,
                      role ∈ {USER, ASSISTANT}, content, blocks jsonb, sources jsonb,
@@ -124,11 +143,10 @@ Implemented in `backend/app/ratelimit.py`; verified with real Redis, with three 
 | LLM / search provider down | Generic error event; search falls back Exa → Tavily → DuckDuckGo |
 | Malformed or oversized agent event | Dropped/rejected; generic error; nothing stored from it |
 | Client disconnect | Upstream cancelled, concurrency slot released, completed answers still saved |
-| Expired token mid-session | 401 → frontend returns to sign-in |
+| Access cookie expired (15 min) | 401 → frontend does one silent `POST /auth/refresh` (single-flight across concurrent requests) and replays the request once; only a refused refresh returns the user to sign-in |
+| Session revoked / refresh token replayed | Refresh refused (401); cookies cleared; frontend returns to sign-in and other tabs sign out via `BroadcastChannel` |
 | Rate limit | 429 + `Retry-After`; frontend shows a specific message |
 
 ## 8. Known limits (see `SECURITY_REVIEW.md` for the full list)
 
-The JWT lives in `localStorage` (migration plan: `docs/COOKIE_AUTH_MIGRATION_PLAN.md`, awaiting approval); no token revocation
-before expiry; no email verification or password reset; no per-user conversation/storage quota; rate-limit state shares an
-eviction-policy Redis with the agent cache; during a Redis outage the fail-local ceiling is per replica.
+Sessions are HttpOnly cookies (section 3a); legacy Bearer tokens (dual mode) cannot be revoked before their 24 h expiry; XSS cannot steal the session but could still use it from the page; no email verification or password reset; no per-user conversation/storage quota; rate-limit state must be isolated from the agent cache's eviction policy before production (`docs/AWS_SECRETS_PLAN.md` section 7); development falls back to a per-replica ceiling during a Redis outage, production refuses instead (`RATE_LIMIT_FAIL_MODE=closed` is enforced).

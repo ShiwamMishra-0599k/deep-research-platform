@@ -6,23 +6,22 @@
 |---|---|
 | Installed (exact, `--save-exact`, dev only) | `vitest@3.2.7`, `@vitest/coverage-v8@3.2.7`, `jsdom@26.1.0`, `@testing-library/react@16.3.3`, `@testing-library/dom@10.4.2`, `@testing-library/user-event@14.6.10`, `@testing-library/jest-dom@6.10.0` |
 | Files added | `vitest.config.ts`, `src/test/setup.ts`, `src/test/location.ts`, 13 co-located `*.test.ts(x)` files; `package.json` scripts `test`, `test:watch`, `test:coverage` |
-| Application code changed | **None.** No `data-testid`, export or behaviour change was needed (all queries use roles/labels) |
-| Tests | **203 passing in 13 files**, identical across 3 consecutive runs (about 45-65 s wall including coverage instrumentation on the Windows dev machine) |
-| Coverage (v8, whole `src/`) | statements **100 %**, lines **100 %**, functions **100 %**, branches **95.62 %** |
+| Application code changed | Initial suite: **none** (all queries use roles/labels). Later changes made *with* the suite as the safety net: HttpOnly-cookie sessions (`lib/api`, `lib/sse`, `store/auth`, `App`), the react-router 7 upgrade and one real bug it exposed in `ConversationSidebar` (see "Later changes") |
+| Tests | **253 passing in 13 files** (203 at first approval; 50 added for cookie sessions, the boot refresh and the retry-loop regression). About 40-65 s wall including coverage on the Windows dev machine |
+| Coverage (v8, whole `src/`) | statements **99.7 %**, lines **99.7 %**, functions **100 %**, branches **94.73 %** (thresholds 70/70/70/60) |
 | Enforced thresholds (global) | statements 70, lines 70, functions 70, branches 60 (`vitest.config.ts`); verified to FAIL the run when unmet (`ERROR: Coverage for statements ... does not meet global threshold`) |
 | Typecheck / build | `tsc --noEmit` clean with tests included; `vite build` and `npm run build` pass; no test code in the production bundle |
-| Mutation proof | 7 of 7 deliberate regressions in critical behaviour were detected by the suite (see below) |
+| Mutation proof | 7 of 7 original and 12 of 12 later deliberate regressions were detected (see below) |
 | Run | `cd frontend && npm test` / `npm run test:coverage` (Node 22+ in CI: `jest-dom` 6.10 requires it) |
 
 Coverage is a floor, not the goal. The suite is behavioural: real zustand stores, real routing, real axios interceptors (the axios *adapter* is the
 mocked network boundary), `@microsoft/fetch-event-source` and `react-leaflet` mocked at module boundaries, no MSW.
 
-### What the 203 tests cover (by priority, as planned in section 6)
+### What the tests cover (by priority, as planned in section 6)
 
-- **P0** `store/auth` (login/register success and failure, token never stored inside the user object, logout clears credentials AND the chat store so the next
-  person on the tab sees nothing, a second user starts clean, synchronous hydration at store creation incl. malformed JSON), `store/chat` (select/cache/failure clears
-  only its own `activeId`, create, delete, rename, message helpers), `lib/sse` (headers, Authorization only with a token, non-2xx -> `SseHttpError(status)`, 401 purge + redirect
-  unless already on /login or /register, callbacks, abort signal), `lib/api` (Bearer interceptor, 401 purge + redirect with no loop, other statuses keep the session, `apiError`).
+- **P0** `store/auth` (login/register success and failure, nothing ever written to web storage, a legacy body token is never kept, server-side logout that still signs out locally when offline, logout resets the chat store so the next
+  person on the tab sees nothing, multi-tab logout over `BroadcastChannel` with no rebroadcast loop, boot through `/auth/me` behind a loading state, silent refresh of an expired access cookie, one-time upgrade and purge of a pre-migration `localStorage` session), `store/chat` (select/cache/failure clears
+  only its own `activeId`, create, delete, rename, message helpers), `lib/sse` (cookie-mode headers: `X-Auth-Mode` + `X-CSRF-Token`, never `Authorization`; non-2xx -> `SseHttpError(status)`; one refresh and one re-open on 401; callbacks; abort signal), `lib/api` (CSRF header on unsafe methods only, single-flight refresh shared by concurrent 401s, one replay and never a loop, 409 retry, transient refresh failures do not sign the user out, session-ended callback, `apiError`).
 - **P1** `ChatPanel` (optimistic messages, event handling for user_message/checkpoint/blocks/clarification/error/persist_error/persisted, malformed events ignored, the
   exact user-facing message for 429/401/404/413/422/500/503/network failure, retry after failure, Stop aborts the signal, auto-scroll follows only while the user is at the
   bottom, first-question titling, create-on-first-send, greeting by time of day), `App`/route protection (signed out never sees the workspace or triggers API calls; no
@@ -43,8 +42,17 @@ Each mutation was applied to the application code alone, the suite run, then the
 | `selectConversation` failure no longer clears `activeId` | **killed** (2: chat store, sidebar) |
 | Markdown links lose `rel="noreferrer"` | **killed** (1) |
 | `ConfirmDialog` ignores Escape | **killed** (2) |
-| axios request interceptor stops sending the Bearer token | **killed** (1) |
+| axios request interceptor stops sending the Bearer token (original design; replaced by the cookie mutations below) | **killed** (1) |
 | `ChatPanel` ignores the `persist_error` event | **killed** (1) |
+| *Later:* request omits `X-CSRF-Token`; request omits `X-Auth-Mode`; refresh no longer single-flight; replay-loop guard removed (suite hangs = caught); session never ended; legacy token not purged; multi-tab logout not broadcast; chat store not reset on session end; SSE omits its headers; loading gate removed | **all 10 killed** |
+| *Later:* boot no longer refreshes an expired access cookie | **killed** (2) |
+| *Later:* `ConversationSidebar` retry guard removed (endless re-request of an unloadable conversation under router 7) | **killed** (hangs the suite) |
+
+### Later changes made with this suite as the safety net
+
+1. **HttpOnly-cookie sessions** (`docs/COOKIE_AUTH_MIGRATION_PLAN.md`): `api.ts`, `sse.ts`, `store/auth.ts`, `App.tsx`; no credential in web storage.
+2. **Boot refresh**: a reload after the 15-minute access cookie expired signed the user out although the refresh session was alive; fixed with 5 regression tests.
+3. **react-router-dom 6.30 -> 7.18.5** (clears the open-redirect advisory; `npm audit --omit=dev` is now 0). The upgrade made the full run hang: React Router 7 applies navigations in a transition, so `ConversationSidebar` re-requested a conversation that failed to load in an endless microtask loop and the redirect home never committed. v6 only avoided this by timing. Fixed (the id is marked before the request) with a regression test; the browser e2e (61 checks) passes on v7.
 
 ### Not covered / cannot reasonably be covered yet
 
@@ -58,11 +66,11 @@ Each mutation was applied to the application code alone, the suite run, then the
 | Cross-browser behaviour (Firefox, Safari), mobile devices, screen readers | jsdom only; ARIA roles/names/focus are asserted but no assistive technology is run | not covered anywhere yet |
 | `src/main.tsx`, `src/vite-env.d.ts` | entry point and ambient types: excluded from coverage by design | e2e |
 | Branch coverage gaps (about 4 % of branches) | defensive branches such as `?? []` fallbacks in ChatPanel (88 % branch) and one rarely hit default in the table/dialog | n/a |
-| HttpOnly-cookie session behaviour | not implemented yet; when `docs/COOKIE_AUTH_MIGRATION_PLAN.md` lands the auth store/api/sse tests above are the safety net and must be extended first | n/a |
+| Real cookie behaviour (HttpOnly, SameSite, Secure, `__Host-` prefixes, browser cookie jar, cross-site CSRF) | jsdom has no real cookie policy or cross-site navigation; the unit tests assert the headers sent and the store transitions | `e2e/scenario.mjs` inspects the real browser cookie jar over CDP and runs a real cross-site attacker page (61 checks) |
 
 ### Dev-tooling advisories introduced by the new dependencies (production audit unchanged)
 
-`npm audit --omit=dev` is unchanged (2 moderate, 0 high/critical: react-router, documented). The full audit gains **vitest (critical)** and **tinypool (critical)**
+`npm audit --omit=dev` is now **0 vulnerabilities** (react-router was upgraded; see "Later changes"). The full audit gains **vitest (critical)** and **tinypool (critical)**
 (`GHSA-82fw-gwwq-j7x9` `@vitest/mocker` path traversal / arbitrary file read; `GHSA-5gmw-xhrv-c9v3`, `GHSA-85c8-ppgw-ccpr` tinypool prototype pollution to RCE via
 worker options) plus `@vitest/coverage-v8`/`test-exclude` (moderate). They affect the dev-time test runner executing untrusted *test code or options* and are not
 shipped. The only npm-offered fix is Vitest 5.1.0, a semver-major that is not compatible with this repo's Vite 5.4 (Vitest 4+ needs Vite 6+), so it is deferred together

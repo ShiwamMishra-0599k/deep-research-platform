@@ -7,7 +7,7 @@ blocks (markdown, tables, maps, metric cards). React frontend, FastAPI backend, 
 ```
 ┌────────────┐  HTTPS+SSE   ┌─────────────────────┐  SSE + X-Internal-Token  ┌──────────────────────┐
 │ React UI   │◄────────────►│ FastAPI backend     │◄────────────────────────►│ Research agent       │
-│ Vite / TS  │  Bearer JWT  │ auth · DB · SSE     │   (not published)        │ Deep Agents · 8 tools│
+│ Vite / TS  │ HttpOnly ck. │ auth · DB · SSE     │   (not published)        │ Deep Agents · 8 tools│
 └────────────┘              └──────────┬──────────┘                          └───────────┬──────────┘
                                        ▼                                                 ▼
                                  PostgreSQL 16                                    Redis 7 (tool cache)
@@ -62,7 +62,7 @@ cd frontend && npm install && npm run dev      # http://localhost:5173
 
 ## API (backend)
 
-All `/api/conversations*` routes need `Authorization: Bearer <jwt>`. Cross-user access returns **404**. (Tokens in query strings are not accepted.)
+Sessions are **HttpOnly cookies** on one origin (the SPA and `/api` share a host). State-changing requests also need the `X-CSRF-Token` header and an allowed `Origin`. `AUTH_MODE=dual` (default) still accepts a legacy `Authorization: Bearer <jwt>`. Cross-user access returns **404**. (Tokens in query strings are not accepted.) Session endpoints: `/api/auth/{register,login,me,refresh,logout,logout-all,session/upgrade}`; see `ARCHITECTURE.md` section 3a.
 
 | Method | Path | Description |
 |---|---|---|
@@ -96,12 +96,12 @@ See [`TEST_PLAN.md`](TEST_PLAN.md) for what each suite covers, what is real vers
 
 ```bash
 # isolated services (never the project's compose volumes) — see AGENTS.md
-(cd backend && .venv/Scripts/python.exe -m pytest)                       # 230 tests, real PostgreSQL + Redis
+(cd backend && .venv/Scripts/python.exe -m pytest)                       # 353 tests, real PostgreSQL + Redis
 (cd research-agent && .venv/Scripts/python.exe -m pytest)                # 379 tests, real Redis, no real network
 python e2e/run.py && python e2e/failure_tests.py                         # browser journey + real outages
 backend/.venv/Scripts/python.exe e2e/multi_instance_tests.py             # 3 backends sharing one Redis; Redis outage/recovery
 python scripts/ci_local.py                                               # every CI job's commands (see .github/workflows/ci.yml)
-(cd frontend && npx tsc --noEmit && npx vite build)
+(cd frontend && npx tsc --noEmit && npm run test:coverage && npx vite build)   # Vitest + coverage gate (70/60/70/70)
 ```
 
 ## Local development without Docker
@@ -124,7 +124,7 @@ The agent: `cd research-agent && uv venv --python 3.12 .venv && uv pip install -
 
 ## Security summary
 
-Header-only JWT with required strong secret, **Redis-backed distributed rate limiting** (login, register, paid research, per-user, concurrency; atomic,
+HttpOnly-cookie sessions (15 min access, rotating refresh with reuse detection, server-side revocation, CSRF token + Origin check; no token in web storage) with a required strong secret, **Redis-backed distributed rate limiting** (login, register, paid research, per-user, concurrency; atomic,
 fail-local/fail-closed on Redis outage, trusted-proxy-aware), no default or weak database credentials, ownership-checked data access, fixed error messages,
 security headers and body limits, an internal-token-protected agent that is not published, an SSRF guard for all fetched URLs,
 untrusted-content handling for prompt injection, and reproducible migrations. Open items and accepted risks are listed honestly
@@ -135,4 +135,4 @@ in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
 - Logs: `docker compose logs -f backend` / `research-agent`
 - Health: `curl http://127.0.0.1:8080/health/ready`
 - **Never** run `docker compose down -v` against your real stack — it deletes the database volume.
-- CI: `.github/workflows/ci.yml` (validated and rehearsed on Linux; **not yet executed on GitHub** — see `TEST_PLAN.md` §3b).
+- CI: `.github/workflows/ci.yml` (validated and rehearsed on Linux; **not yet executed on GitHub** (token lacks `workflow` scope), see `TEST_PLAN.md` section 3b).

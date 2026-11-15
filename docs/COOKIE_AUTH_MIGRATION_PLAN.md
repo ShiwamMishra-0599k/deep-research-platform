@@ -1,9 +1,17 @@
 # HttpOnly-Cookie Authentication — Migration Plan
 
-> ## NOTHING IN THIS DOCUMENT IS IMPLEMENTED.
-> Authentication today is a **Bearer JWT kept in `localStorage`**. No cookie, session table, CSRF check or refresh endpoint exists in the code.
-> This is a plan. **Explicit user approval is required before any work starts** (decisions in §14). Do not describe the product as
-> "using HttpOnly cookies" until the acceptance criteria in §13 have been demonstrated.
+> ## STATUS (2026-11-15): stages 1-3 IMPLEMENTED and tested; stages 4-5 NOT done.
+> The user approved the migration with this policy: same-origin architecture; 15-minute access session; refresh up to 7 days with rotation on use;
+> 24 h inactivity; revocation on logout; HttpOnly + Secure in production; SameSite=Lax unless stricter is needed; CSRF protection; Origin validation.
+> The sections below keep the original design rationale; where the build differs, **`SECURITY_REVIEW.md` section 2 and `ARCHITECTURE.md` section 3a
+> describe what actually exists**. The product runs in `AUTH_MODE=dual` (cookies plus legacy Bearer); it is **not** cookie-only yet (stage 4).
+
+| Stage | Status |
+|---|---|
+| 1-2 Backend (migration 0003, cookies, CSRF, Origin check, refresh/logout/logout-all/upgrade, dual mode) | **Done** - 353 backend tests (sessions, CSRF, config, auth) |
+| 3 Frontend cookie flow + e2e | **Done** - 253 frontend tests (99.7 % statements); browser e2e 61/61 including real cookie-jar flags, cross-site CSRF/login-CSRF attacker page, revocation, replay of a copied cookie, expiry + silent refresh, legacy-session upgrade |
+| 4 Cookie-only (`AUTH_MODE=cookie`, drop Bearer and body token) | **Not done** - deliberately after the migration window; legacy Bearer tokens cannot be revoked before their 24 h expiry |
+| 5 Hardening (CSP/HSTS on the hosting layer, cleanup job for expired sessions, "active sessions" UI, security-event alerting) | **Not done** (`purge_expired_sessions` exists but is not scheduled) |
 
 ## 1. Why, and when
 
