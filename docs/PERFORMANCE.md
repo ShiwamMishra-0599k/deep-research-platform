@@ -44,7 +44,7 @@ so the floor is about 3.3 s. `CPU` is the share of the **whole 4-core machine** 
 * Backend memory grew by roughly 0.8 MB per open stream (52 MB at 1 stream, 253 MB at 250), so memory sizing for long-lived streams is a real input to task sizing.
 * **At 250 simultaneous users, 7 requests failed with a client-side `ReadError`.** The backend log has no matching error; none failed at 150 or below. Cause not established (it may be the load generator's single process and the Windows loopback, or the server resetting connections). One such failure was also seen in each of two earlier 250-user runs (248/250, 249/250).
 * **Run-to-run spread is large on this machine** (it was short of memory: Windows memory compression was holding about 3.6 GB). An earlier run of the same code reached about 6.6 researches per second at the plateau and 100 users at p50 13.8 s, against 4.6 per second and 17.9 s here; the cheap-endpoint rate was 88 per second then and 51 per second here. Treat the ratios, not the absolute values, as meaningful.
-* **Redis timeouts under load:** three times the rate-limit store timed out (the 0.25 s limit) and the backend fell back to per-process limits for 5 s, as designed for `RATE_LIMIT_FAIL_MODE=local`. **In production the mode is fail-closed**, so a slow Redis at that load would have caused refusals instead. The timeout value and the Redis sizing (isolated `noeviction` ElastiCache) need to be tested under load before relying on fail-closed.
+* **Redis timeouts: investigated (section 3a).** They were an environment effect, and the investigation found a real amplification bug that is now fixed.
 
 **Before the fix (same harness, committed code of that time):** 25 users 25/25; **50 users 18/50; 100 users 20/100** (see section 1).
 
@@ -60,6 +60,20 @@ so the floor is about 3.3 s. `CPU` is the share of the **whole 4-core machine** 
   Getting case 3 right took three attempts, each found by measurement: the notes alone left exit code 137, because idle anyio worker threads (non-daemon) kept the interpreter alive (confirmed with a `faulthandler` thread dump); stopping them at the end of the lifespan was not enough, because uvicorn cancels overdue streams but does not wait for them to unwind, so they created new workers afterwards; the lifespan shutdown now waits (up to 8 s) for in-flight streams before stopping the workers. New research requests during the drain get an immediate `503` with `Retry-After`.
   **Consequence for deployment:** keep `SHUTDOWN_GRACE_SECONDS` below the orchestrator's stop timeout (Fargate allows at most 120 s). A research can still last up to 300 s, so a deploy during a long research ends it, but the user now sees a clear message and the conversation stays consistent. Not yet tested for the agent image.
 * **ARM64:** the backend image builds for `linux/arm64` (under emulation, about 8 minutes) and its native dependencies (psycopg binary, pydantic-core, bcrypt) load as `aarch64`. The agent image is covered in section 5.
+
+### 3a. Redis timeouts and the circuit breaker (investigated, one defect fixed)
+
+* **Is Redis slow under load?** No. A separate probe pinging the rate-limit Redis from the harness process every 100 ms measured a median of 3 to 4 ms and a maximum of 52 to 69 ms at 100 to 250 concurrent researches (0 failed pings). With three CPU-hog processes on the 4-core machine a single 486 ms stall appeared and 250 of 250 researches still succeeded with **zero** backend timeout warnings.
+* **Why did the earlier runs log timeouts and `ReadError`s?** The three warnings and the 7 `ReadError`s appeared in a run made while the machine was short of memory (Windows memory compression, about 50 MB free). In four later runs on the same code (including 250 users with the CPU hogs) there were no `ReadError`s and no timeouts. The best-supported explanation is brief stalls of the host or the Docker VM, not a defect in Lumen, but it was not proven, and the `ReadError` cause is **not established**.
+* **The real defect:** whatever causes a stall, the old breaker amplified it. After two failed attempts Redis was treated as down for `redis_retry_seconds` (5 s). In production mode (`RATE_LIMIT_FAIL_MODE=closed`) every research request is refused while it is down. Measured by freezing Redis for 0.7 s (`perf/load_test.py --fault redis-stall --fail-mode closed`):
+
+| | One user | 20 users |
+|---|---|---|
+| Before: failed requests | **191 of 217; refusals continued 4.7 s after Redis recovered** | 6 of 241 (an in-flight call that succeeded reset the breaker) |
+| After: failed requests | **4 of 36; none after recovery** | **0 of 169** |
+
+* **The fix:** a half-open breaker. The store still counts as down for reporting, but one probe call is let through every `redis_probe_seconds` (0.25 s), so recovery is noticed within a quarter of a second. Fail-closed is unchanged during the real outage (3 tests); the limiter's six call sites use a probe-aware check.
+* **Still open:** the 0.25 s command timeout is tight for a loaded host (a 486 ms stall was seen). In fail-closed mode any stall longer than the timeout refuses requests for its duration. Raising it trades refusals for slower requests; that should be decided with a real deployment's Redis latency, which cannot be measured here.
 
 ## 4. What was not measured
 

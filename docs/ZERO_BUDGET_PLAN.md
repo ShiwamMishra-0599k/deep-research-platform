@@ -59,7 +59,7 @@ With 29 cases every proportion has a wide 95% interval (roughly +/- 13 to 17 poi
 | 2 | Observability: tokens, LLM calls, search calls and an estimated cost (price defaults to 0) per research, in logs, `/metrics` and the final event | 0 | **Done** (`docs/OBSERVABILITY.md`, 12 new agent tests; hermetic token counts are synthetic) |
 | 3 | Legacy Bearer usage counter (precondition for the cookie-only switch) | 0 | **Done** (`python -m app.legacy_usage`, 6 tests) |
 | 4 | Graceful shutdown with a bounded drain and a clean "interrupted" outcome | 0 | **Done for the backend image** (measured: exit 0 in 6.2 s, 8 of 8 interrupted notes; agent image not yet tested) |
-| 5 | Investigate load-test `ReadError`s and Redis timeouts; fix or document | 0 | Yes |
+| 5 | Investigate load-test `ReadError`s and Redis timeouts; fix or document | 0 | **Done**: Redis is not slow; the breaker amplified stalls and is fixed (measured, 3 new tests); the `ReadError` cause is not established and did not recur (`docs/PERFORMANCE.md` 3a) |
 | 6 | ARM64: a native build job in CI (public repositories get free arm64 runners; to be confirmed by the first run) | 0 | Needs GitHub, no account changes |
 | 7 | Multi-worker scaling test and a soak test with memory-growth measurement | 0 | Yes (bounded by this machine) |
 | 8 | Tier B component evaluations (citation checker, BM25) | 0 | Yes |

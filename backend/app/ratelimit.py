@@ -119,6 +119,7 @@ class RedisBackend:
         self._client: redis.Redis | None = None
         self._scripts: dict[str, object] = {}
         self._down_until = 0.0
+        self._next_probe = 0.0
         self._lock = threading.Lock()
 
     @property
@@ -128,6 +129,32 @@ class RedisBackend:
     @property
     def available(self) -> bool:
         return self.enabled and time.monotonic() >= self._down_until
+
+    @property
+    def usable(self) -> bool:
+        """Would a call be attempted right now? True when closed, or when a probe is due. Does NOT consume the probe (run() does)."""
+        if not self.enabled:
+            return False
+        now = time.monotonic()
+        return now >= self._down_until or now >= self._next_probe
+
+    def _may_call(self) -> bool:
+        """Closed: yes. Open (after a failure): no, except ONE probe call per `redis_probe_seconds` (half-open).
+
+        Without the probe, a Redis stall of under a second kept every guarded request refused (fail-closed) or on the local fallback for the whole
+        `retry_seconds`, even though Redis was healthy again after a moment. Measured: a 0.9 s stall caused 4.7 s of refused research requests
+        for a single user (perf/load_test.py --fault redis-stall --fail-mode closed --stall-conc 1)."""
+        if not self.enabled:
+            return False
+        now = time.monotonic()
+        if now >= self._down_until:
+            return True
+        if now >= self._next_probe:
+            with self._lock:
+                if now >= self._next_probe:
+                    self._next_probe = now + settings.redis_probe_seconds
+                    return True
+        return False
 
     @property
     def status(self) -> str:
@@ -160,6 +187,7 @@ class RedisBackend:
     def _trip(self, exc: BaseException) -> None:
         was_up = time.monotonic() >= self._down_until
         self._down_until = time.monotonic() + self.retry_seconds
+        self._next_probe = time.monotonic() + settings.redis_probe_seconds
         if was_up:  # log once per outage, never the URL (may carry a password)
             log.warning("Redis rate-limit store unavailable (%s); using the %s fallback for %.0fs",
                         type(exc).__name__, settings.rate_limit_fail_mode, self.retry_seconds)
@@ -168,7 +196,7 @@ class RedisBackend:
         """Run fn(client). A transient connection/timeout error is retried once immediately (our
         scripts only ever make a limit stricter if they run twice). A second failure trips the
         breaker and raises _BackendDown; other Redis errors (bugs) trip it at once."""
-        if not self.available:
+        if not self._may_call():
             raise _BackendDown()
         last: BaseException | None = None
         for _attempt in (1, 2):
@@ -367,7 +395,7 @@ class SlidingWindowLimiter:
 
     def hit(self, key: str) -> Decision:
         b = self._b()
-        if b.available:
+        if b.usable:
             try:
                 allowed, retry_ms = b.script(
                     "window", _SLIDING_WINDOW, [b.key(self.kind, self.name, key)],
@@ -400,7 +428,7 @@ class FailureLockout:
 
     def is_locked(self, key: str) -> bool:
         b = self._b()
-        if b.available:
+        if b.usable:
             try:
                 value = b.run(lambda c: c.get(b.key(self.kind, self.name, key)))
                 return value is not None and int(value) >= self.max_failures
@@ -411,7 +439,7 @@ class FailureLockout:
 
     def record_failure(self, key: str) -> None:
         b = self._b()
-        if b.available:
+        if b.usable:
             try:
                 b.script("fail", _FAILURE_INCR, [b.key(self.kind, self.name, key)], [int(self.lockout)])
                 return
@@ -423,7 +451,7 @@ class FailureLockout:
     def clear(self, key: str) -> None:
         self._local.clear(key)
         b = self._b()
-        if b.available:
+        if b.usable:
             try:
                 b.run(lambda c: c.delete(b.key(self.kind, self.name, key)))
             except _BackendDown:
@@ -451,7 +479,7 @@ class ConcurrencyGuard:
 
     def acquire(self, key: str) -> Slot | None:
         b = self._b()
-        if b.available:
+        if b.usable:
             try:
                 token = uuid.uuid4().hex
                 ok = b.script("slot", _SLOT_ACQUIRE, [b.key(self.kind, self.name, key)], [self.limit, int(self.ttl * 1000), token])
@@ -476,7 +504,7 @@ class ConcurrencyGuard:
 
     def active(self, key: str) -> int:
         b = self._b()
-        if b.available:
+        if b.usable:
             try:
                 return int(b.script("slotcount", _SLOT_COUNT, [b.key(self.kind, self.name, key)], []))
             except _BackendDown:

@@ -162,7 +162,6 @@ def main():
         results, t_stop, stop_info, new_conn = asyncio.run(scenario(a))
         exit_code = sh("docker", "inspect", NAME, "--format", "{{.State.ExitCode}}").stdout.strip()
         logs = sh("docker", "logs", NAME)
-        shutdown_lines = [ln for ln in (logs.stdout + logs.stderr).splitlines() if any(k in ln.lower() for k in ("shutting down", "shutdown", "finished server", "waiting for"))]
         persisted = 0
         interrupted = None
         try:

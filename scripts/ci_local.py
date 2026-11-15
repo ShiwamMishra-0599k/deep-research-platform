@@ -83,7 +83,7 @@ def job_frontend():
 
 
 def job_lint():
-    run("lint: ruff (backend, e2e, scripts)", uvx("ruff", "check", "--config", "ruff.toml", "backend", "e2e", "scripts"))
+    run("lint: ruff (backend, e2e, scripts)", uvx("ruff", "check", "--config", "ruff.toml", "backend", "e2e", "scripts", "perf", "eval"))
     run("lint: workflow passes actionlint", ["uvx", "--from", "actionlint-py", "actionlint.exe", ".github/workflows/ci.yml"])
     run("lint: workflow + dependabot pass the GitHub schemas", ["uvx", "check-jsonschema", "--builtin-schema", "vendor.github-workflows", ".github/workflows/ci.yml"])
 

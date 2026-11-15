@@ -62,7 +62,8 @@ class Settings(BaseSettings):
     redis_url: str = ""
     rate_limit_prefix: str = "lumen:rl"
     redis_timeout_seconds: float = 0.25      # connect and command timeout: Redis trouble must never stall requests
-    redis_retry_seconds: float = 5.0         # circuit breaker: after a failure, skip Redis this long
+    redis_retry_seconds: float = 5.0         # circuit breaker: after a failure, the store counts as down for this long (status, fallback)
+    redis_probe_seconds: float = 0.25        # ...but ONE call is let through this often to notice recovery (half-open), so an outage never outlasts the real one by seconds
     redis_max_connections: int = 64          # bounded pool per backend process
     # What to do when Redis is unreachable: "local" = enforce per-process limits (bounded, degraded);
     # "closed" = refuse the guarded operation with 503. Never "unlimited".

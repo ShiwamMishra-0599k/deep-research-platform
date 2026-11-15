@@ -145,7 +145,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install ruff==0.17.5
       - name: ruff (backend, e2e, scripts; the agent is linted in its own job)
-        run: ruff check --config ruff.toml backend e2e scripts
+        run: ruff check --config ruff.toml backend e2e scripts perf eval
       - name: Validate the workflow files themselves (schema + actionlint)
         run: |
           pip install actionlint-py==1.7.12.25 check-jsonschema==0.33.3

@@ -317,3 +317,71 @@ def test_script_cache_survives_a_redis_flush(name):
     assert lim.hit("k").allowed
     redis.Redis.from_url(REDIS_URL).script_flush()
     assert lim.hit("k").allowed
+
+
+# ── half-open circuit breaker (found by the Redis-stall load test) ──────────
+
+def _break(be, monkeypatch, calls=None):
+    def broken():
+        if calls is not None:
+            calls.append(1)
+        raise redis.exceptions.ConnectionError("redis is down")
+
+    real = be._get_client
+    monkeypatch.setattr(be, "_get_client", broken)
+    return real
+
+
+def test_breaker_notices_recovery_within_the_probe_interval_not_the_whole_retry_period(monkeypatch):
+    from app.ratelimit import _BackendDown
+
+    monkeypatch.setattr(settings, "redis_probe_seconds", 0.1)
+    be = _backend(retry=30)                                    # "down for 30 s" in the old design
+    real = _break(be, monkeypatch)
+    with pytest.raises(_BackendDown):
+        be.run(lambda c: c.ping())
+    assert be.available is False
+    with pytest.raises(_BackendDown):
+        be.run(lambda c: c.ping())                             # inside the probe window: refused without touching Redis
+    monkeypatch.setattr(be, "_get_client", real)               # Redis is back
+    time.sleep(0.15)
+    assert be.run(lambda c: c.ping()) is True                  # the probe succeeds
+    assert be.available is True and be._down_until == 0.0      # closed again about 0.15 s after recovery, not 30 s
+
+
+def test_only_one_probe_per_interval_while_redis_is_down(monkeypatch):
+    from app.ratelimit import _BackendDown
+
+    monkeypatch.setattr(settings, "redis_probe_seconds", 0.2)
+    be = _backend(retry=30)
+    calls: list[int] = []
+    _break(be, monkeypatch, calls)
+    with pytest.raises(_BackendDown):
+        be.run(lambda c: c.ping())
+    tripped_calls = len(calls)
+    time.sleep(0.25)                                           # the next probe is due
+
+    def hammer(_):
+        try:
+            be.run(lambda c: c.ping())
+        except _BackendDown:
+            pass
+
+    with ThreadPoolExecutor(20) as ex:
+        list(ex.map(hammer, range(20)))
+    assert len(calls) - tripped_calls == 2                     # ONE probe (its two attempts), not twenty callers hitting a dead Redis
+
+
+def test_fail_closed_refuses_during_the_outage_and_accepts_again_right_after_recovery(name, monkeypatch):
+    monkeypatch.setattr(settings, "rate_limit_fail_mode", "closed")
+    monkeypatch.setattr(settings, "redis_probe_seconds", 0.1)
+    be = _backend(retry=30)
+    lim = SlidingWindowLimiter(name, 100, 60, backend=be)
+    real = _break(be, monkeypatch)
+    with pytest.raises(RateLimitUnavailable):
+        lim.hit("k")
+    with pytest.raises(RateLimitUnavailable):
+        lim.hit("k")                                           # still refused while down (fail-closed is preserved)
+    monkeypatch.setattr(be, "_get_client", real)
+    time.sleep(0.15)
+    assert lim.hit("k").allowed is True                        # and served again as soon as the next probe succeeds

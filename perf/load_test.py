@@ -143,6 +143,40 @@ class Sampler(threading.Thread):
         return out
 
 
+class RedisProbe(threading.Thread):
+    """Pings the rate-limit Redis every 100 ms from the HARNESS process. If Redis itself were slow this would show it; the backend's own
+    0.25 s timeouts can then be attributed to Redis (this probe is slow too) or to the backend (this probe stays fast)."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.r = redis.Redis.from_url(RL_REDIS, socket_timeout=2)
+        self.samples: list[tuple[float, float]] = []
+        self.stop_flag = threading.Event()
+
+    def run(self):
+        while not self.stop_flag.is_set():
+            t = time.perf_counter()
+            try:
+                self.r.ping()
+                self.samples.append((time.time(), (time.perf_counter() - t) * 1000))
+            except Exception:
+                self.samples.append((time.time(), float("inf")))
+            self.stop_flag.wait(0.1)
+
+    def window(self, t0, t1):
+        v = [ms for ts, ms in self.samples if t0 <= ts <= t1]
+        fin = [x for x in v if x != float("inf")]
+        return {"pings": len(v), "failed": len(v) - len(fin), "p50_ms": pct(fin, 50), "p99_ms": pct(fin, 99), "max_ms": round(max(fin), 1) if fin else None}
+
+
+def backend_redis_timeouts_since(offset: int) -> tuple[int, int]:
+    """(count of 'rate-limit store unavailable' warnings written since byte `offset`, new offset)."""
+    path = stack.OUT / "perf_backend.log"
+    data = path.read_bytes()
+    chunk = data[offset:].decode("utf-8", errors="replace")
+    return sum(1 for ln in chunk.splitlines() if "rate-limit store unavailable" in ln), len(data)
+
+
 # ── Virtual users ───────────────────────────────────────────────────────────────────────────────────────────────────
 async def register(client: httpx.AsyncClient, i: int) -> dict:
     email = f"perf{i}-{uuid.uuid4().hex[:8]}@example.com"
@@ -185,14 +219,16 @@ async def one_research(client: httpx.AsyncClient, headers: dict, query: str, tim
     return res
 
 
-async def level(users: list[dict], n: int, rounds: int, timeout: float, sampler: Sampler) -> dict:
+async def level(users: list[dict], n: int, rounds: int, timeout: float, sampler: Sampler, probe: RedisProbe) -> dict:
     limits = httpx.Limits(max_connections=n * 2 + 10, max_keepalive_connections=n)
+    _, log_offset = backend_redis_timeouts_since(10**12)
     async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
         t0 = time.time()
         results = []
         for _ in range(rounds):
             results += await asyncio.gather(*(one_research(client, users[i], QUERY, timeout) for i in range(n)))
         t1 = time.time()
+    timeouts, _ = backend_redis_timeouts_since(log_offset)
     ok = [r for r in results if r["ok"]]
     status: dict[str, int] = {}
     for r in results:
@@ -206,6 +242,8 @@ async def level(users: list[dict], n: int, rounds: int, timeout: float, sampler:
         "first_event_s": summarize([r["first_event_s"] for r in ok if r["first_event_s"] is not None]),
         "first_checkpoint_s": summarize([r["first_checkpoint_s"] for r in ok if r["first_checkpoint_s"] is not None]),
         "resources": sampler.window(t0, t1),
+        "redis_probe_from_harness": probe.window(t0, t1),
+        "backend_redis_timeout_warnings": timeouts,
         "errors_sample": sorted({r["error"] for r in results if r["error"]})[:5],
     }
 
@@ -240,7 +278,7 @@ def prepare_database():
         redis.Redis.from_url(u).flushdb()
 
 
-def start_stack(delay_ms: int):
+def start_stack(delay_ms: int, redis_timeout=None, fail_mode=None):
     stack.start("perf_fake_llm", [stack.AGENT_PY, ROOT / "e2e" / "fake_llm.py", stack.P_LLM], {"FAKE_LLM_DELAY_MS": str(delay_ms)})
     agent_env = {**stack.AGENT_ENV, "REDIS_URL": AGENT_CACHE_REDIS}
     agent = stack.start("perf_agent", [stack.AGENT_PY, ROOT / "e2e" / "run_agent_fake_internet.py", stack.P_AGENT], agent_env, cwd=ROOT / "research-agent")
@@ -248,6 +286,10 @@ def start_stack(delay_ms: int):
                                MAX_CONCURRENT_STREAMS_PER_USER=50, MAX_CONCURRENT_STREAMS_GLOBAL=10000,
                                API_REQUESTS_PER_USER_PER_MINUTE=1000000, REGISTER_PER_IP_PER_HOUR=100000)
     be_env["DATABASE_URL"] = PERF_URL
+    if redis_timeout is not None:
+        be_env["REDIS_TIMEOUT_SECONDS"] = str(redis_timeout)
+    if fail_mode:
+        be_env["RATE_LIMIT_FAIL_MODE"] = fail_mode
     backend = stack.start("perf_backend", [stack.BACKEND_PY, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", stack.P_API],
                           be_env, cwd=ROOT / "backend")
     ok = (stack.wait_http(f"http://127.0.0.1:{stack.P_LLM}/health") and stack.wait_http(f"http://127.0.0.1:{stack.P_AGENT}/health", timeout=240)
@@ -281,6 +323,43 @@ async def fault_agent_kill(users, agent_cmd_env, sampler):
                 "recovered": bool(rec["ok"]), "kill_to_recovery_s": round(time.monotonic() - t_kill, 1)}
 
 
+async def fault_redis_stall(users, stall_ms: int, seconds: float, conc: int):
+    """Sustained research load while the rate-limit Redis is frozen for `stall_ms` (docker pause). Measures how long users are refused.
+
+    Run it with --fail-mode closed to see the production behaviour: a guarded operation that cannot reach Redis is refused (503)."""
+    t_begin = time.monotonic()
+    events: list[tuple[float, bool, str]] = []        # (seconds since start, ok, outcome)
+    stall_at = 6.0
+    marks = {}
+
+    async def worker(i):
+        async with httpx.AsyncClient(timeout=120) as c:
+            while time.monotonic() - t_begin < seconds:
+                r = await one_research(c, users[i % len(users)], QUERY, 120)
+                events.append((time.monotonic() - t_begin, bool(r["ok"]), str(r["status"] or r["error"])))
+
+    async def staller():
+        await asyncio.sleep(stall_at)
+        marks["pause"] = time.monotonic() - t_begin
+        subprocess.run(["docker", "pause", "lumen-test-redis"], capture_output=True)
+        await asyncio.sleep(stall_ms / 1000)
+        subprocess.run(["docker", "unpause", "lumen-test-redis"], capture_output=True)
+        marks["resume"] = time.monotonic() - t_begin
+
+    try:
+        await asyncio.gather(staller(), *(worker(i) for i in range(conc)))
+    finally:
+        subprocess.run(["docker", "unpause", "lumen-test-redis"], capture_output=True)   # never leave the shared test Redis frozen
+    bad = [(t, o) for t, ok, o in events if not ok]
+    first, last = (min(t for t, _ in bad), max(t for t, _ in bad)) if bad else (None, None)
+    return {
+        "stall_ms": stall_ms, "paused_at_s": round(marks.get("pause", 0), 2), "resumed_at_s": round(marks.get("resume", 0), 2),
+        "requests": len(events), "failed": len(bad), "failure_outcomes": sorted({o for _, o in bad}),
+        "first_failure_s": round(first, 2) if first is not None else None, "last_failure_s": round(last, 2) if last is not None else None,
+        "refusals_lasted_after_resume_s": round(max(0.0, last - marks.get("resume", 0)), 2) if last is not None else 0.0,
+    }
+
+
 def git_sha():
     sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=ROOT).stdout.strip()
     dirty = subprocess.run(["git", "status", "--porcelain", "--", "backend/app", "research-agent/src", "e2e", "perf"],
@@ -289,13 +368,16 @@ def git_sha():
 
 
 async def amain(a):
-    ok, pids = start_stack(a.llm_delay_ms)
+    ok, pids = start_stack(a.llm_delay_ms, a.redis_timeout_s, a.fail_mode)
     if not ok:
         print("stack failed to start; see e2e/out/perf_*.log")
         return 3
     sampler = Sampler(pids)
     sampler.start()
+    probe = RedisProbe()
+    probe.start()
     levels = [int(x) for x in a.levels.split(",")]
+    hogs = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(a.cpu_hog)]
     try:
         async with httpx.AsyncClient(timeout=30) as c:
             users = [await register(c, i) for i in range(max(levels))]
@@ -307,13 +389,13 @@ async def amain(a):
             "when": time.strftime("%Y-%m-%dT%H:%M:%S"), "git": git_sha(),
             "machine": {"cpus": psutil.cpu_count(), "ram_gb": round(psutil.virtual_memory().total / 1e9, 1), "os": platform.platform(),
                         "python": platform.python_version()},
-            "setup": {"backend_workers": 1, "agent_workers": 1, "llm_delay_ms_per_call": a.llm_delay_ms, "rounds": a.rounds,
+            "setup": {"cpu_hog_processes": a.cpu_hog, "backend_redis_timeout_s": a.redis_timeout_s if a.redis_timeout_s is not None else "default 0.25", "rate_limit_fail_mode": a.fail_mode or "default (local)", "backend_workers": 1, "agent_workers": 1, "llm_delay_ms_per_call": a.llm_delay_ms, "rounds": a.rounds,
                       "query": QUERY, "note": "each research makes 2 LLM calls (tool request, then answer) plus one fake web search"},
             "levels": [],
         }
         for n in levels:
             print(f"level {n} concurrent x {a.rounds} rounds ...", flush=True)
-            lv = await level(users, n, a.rounds, a.timeout, sampler)
+            lv = await level(users, n, a.rounds, a.timeout, sampler, probe)
             report["levels"].append(lv)
             print(f"  ok {lv['succeeded']}/{lv['requests']}  total p50 {lv['total_s']['p50']}s p95 {lv['total_s']['p95']}s  "
                   f"{lv['throughput_per_s']}/s  pg_conns max {lv['resources'].get('pg_conns', {}).get('max')}", flush=True)
@@ -325,6 +407,10 @@ async def amain(a):
             print("fault: kill the agent mid-run ...", flush=True)
             report["fault_agent_kill"] = await fault_agent_kill(users, {**stack.AGENT_ENV, "REDIS_URL": AGENT_CACHE_REDIS}, sampler)
             print("  ", json.dumps(report["fault_agent_kill"]), flush=True)
+        if a.fault == "redis-stall":
+            print(f"fault: freeze Redis for {a.stall_ms} ms under sustained load ...", flush=True)
+            report["fault_redis_stall"] = await fault_redis_stall(users, a.stall_ms, 25.0, a.stall_conc)
+            print("  ", json.dumps(report["fault_redis_stall"]), flush=True)
         report["stuck_idle_in_transaction_sessions"] = sampler.diag
         report["backend_log_errors"] = sum(1 for line in (stack.OUT / "perf_backend.log").read_text(errors="replace").splitlines() if " ERROR " in line)
         OUT.mkdir(parents=True, exist_ok=True)
@@ -333,7 +419,10 @@ async def amain(a):
         print("wrote", path)
         return 0
     finally:
+        for h in hogs:
+            h.kill()
         sampler.stop_flag.set()
+        probe.stop_flag.set()
 
 
 def main():
@@ -345,7 +434,12 @@ def main():
     ap.add_argument("--api-load", action="store_true")
     ap.add_argument("--api-conc", type=int, default=50)
     ap.add_argument("--api-seconds", type=int, default=10)
-    ap.add_argument("--fault", choices=["agent-kill"], default=None)
+    ap.add_argument("--fault", choices=["agent-kill", "redis-stall"], default=None)
+    ap.add_argument("--stall-ms", type=int, default=700, help="how long the rate-limit Redis is frozen for --fault redis-stall")
+    ap.add_argument("--stall-conc", type=int, default=20, help="concurrent users during --fault redis-stall (1 = a single user: nothing in flight to heal the breaker)")
+    ap.add_argument("--fail-mode", choices=["local", "closed"], default=None, help="RATE_LIMIT_FAIL_MODE for the backend (production uses closed)")
+    ap.add_argument("--cpu-hog", type=int, default=0, help="run N busy-loop processes during the test to emulate a loaded host")
+    ap.add_argument("--redis-timeout-s", type=float, default=None, help="REDIS_TIMEOUT_SECONDS for the backend (default 0.25)")
     a = ap.parse_args()
     for p in (stack.BACKEND_PY, stack.AGENT_PY):
         if not p.exists():
