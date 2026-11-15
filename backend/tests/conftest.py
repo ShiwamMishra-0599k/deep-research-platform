@@ -28,6 +28,7 @@ assert (_url.database or "").endswith("_test"), "test database name must end in 
 os.environ["DATABASE_URL"] = TEST_DB_URL
 os.environ["ALLOW_INSECURE_DEV_DB"] = "1"  # the throwaway test container uses a deliberately weak, local-only password
 os.environ["JWT_SECRET"] = "k9Zq" * 12  # 48 chars, no placeholder markers
+os.environ["CSRF_SECRET"] = "Vq3z" * 12  # 48 chars, differs from JWT_SECRET, no placeholder words
 os.environ["AGENT_API_KEY"] = "test-agent-key-0123456789abcdef"
 os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:5173"
 TEST_REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://127.0.0.1:56379/3")
@@ -84,7 +85,8 @@ def _clean_state():
     from app import deps, ratelimit
     from app.routers import auth, research
 
-    for limiter in (auth.login_ip_limiter, auth.register_ip_limiter, research.query_limiter, deps.api_user_limiter):
+    for limiter in (auth.login_ip_limiter, auth.register_ip_limiter, research.query_limiter, deps.api_user_limiter,
+                    auth.refresh_ip_limiter, auth.refresh_session_limiter, auth.upgrade_ip_limiter):
         limiter.reset()
     auth.login_lockout.reset()
     research.stream_guard.reset()
@@ -116,6 +118,7 @@ def make_user(client):
         r = client.post("/api/auth/register", json={"email": email, "password": password, "name": name})
         assert r.status_code == 200, r.text
         data = r.json()
+        client.cookies.clear()  # session cookies are tested explicitly in test_sessions.py; keep Bearer tests Bearer-only
         return {
             "token": data["token"],
             "id": data["id"],

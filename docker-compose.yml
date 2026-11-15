@@ -3,6 +3,8 @@
 #   JWT_SECRET         signs login tokens
 #   AGENT_API_KEY      shared by backend and research-agent
 #   POSTGRES_PASSWORD  database role password (hex/alphanumeric: it is embedded in DATABASE_URL)
+#   CSRF_SECRET        signs CSRF tokens for cookie sessions (must differ from JWT_SECRET)
+# For production use the settings in docs/AWS_SECRETS_PLAN.md instead of a compose .env file.
 #
 # The project name is fixed on purpose. Without it Compose derives the name from the folder, so another
 # checkout of this repo (or a copy named the same) would silently attach to THIS project's volumes,
@@ -83,6 +85,13 @@ services:
       RESEARCH_AGENT_URL: http://research-agent:8004
       AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY (python scripts/init_env.py)}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (python scripts/init_env.py)}
+      CSRF_SECRET: ${CSRF_SECRET:?set CSRF_SECRET (python scripts/init_env.py)}
+      # development | production. production turns unsafe settings (fail-open limits, http origins, no HSTS, ...) into startup errors.
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # Session mode: dual = cookies + legacy Bearer (migration window), cookie = cookies only, bearer = legacy only.
+      AUTH_MODE: ${AUTH_MODE:-dual}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}   # true over HTTPS: Secure flag and __Host-/__Secure- cookie names
+      ENABLE_HSTS: ${ENABLE_HSTS:-false}
       JWT_EXPIRATION_MINUTES: 1440
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       # Distributed rate limiting (shared across backend replicas). Separate logical DB from the agent's cache.

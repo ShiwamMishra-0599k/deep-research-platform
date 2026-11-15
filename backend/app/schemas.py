@@ -39,7 +39,7 @@ class LoginRequest(BaseModel):
 
 
 class AuthResponse(BaseModel):
-    token: str
+    token: str | None = None  # legacy 24 h bearer token; omitted for cookie clients (see routers/auth.py)
     id: uuid.UUID
     email: str
     name: str

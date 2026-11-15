@@ -37,7 +37,23 @@ def verify_dummy(plain: str) -> None:
         pass
 
 
+def issue_access_token(user_id: uuid.UUID, sid: uuid.UUID) -> str:
+    """Short-lived JWT carried in the HttpOnly access cookie. `sid` ties it to a revocable server-side session."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "sid": str(sid),
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=settings.access_token_minutes)).timestamp()),
+        "jti": uuid.uuid4().hex,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=_ALG)
+
+
 def issue_token(user: User) -> str:
+    """LEGACY 24 h bearer token (no session id). Only returned to old clients during the dual-mode window."""
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user.id),
@@ -65,6 +81,8 @@ def decode_token(token: str) -> dict | None:
         return None
     try:
         uuid.UUID(str(claims.get("sub")))
+        if "sid" in claims:
+            uuid.UUID(str(claims["sid"]))
     except ValueError:
         return None
     return claims

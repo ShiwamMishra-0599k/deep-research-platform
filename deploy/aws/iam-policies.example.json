@@ -1,0 +1,48 @@
+{
+  "_comment": "EXAMPLE ONLY, unused. Least-privilege policies for the ECS task EXECUTION roles. Replace placeholders. The running task roles get NO Secrets Manager permission because secrets are injected at launch.",
+  "backendExecutionRoleSecrets": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ReadOnlyTheBackendSecrets",
+        "Effect": "Allow",
+        "Action": "secretsmanager:GetSecretValue",
+        "Resource": [
+          "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:lumen/prod/app-*",
+          "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:lumen/prod/db-*",
+          "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:lumen/prod/redis-ratelimit-*"
+        ]
+      },
+      {
+        "Sid": "DecryptOnlyViaSecretsManager",
+        "Effect": "Allow",
+        "Action": "kms:Decrypt",
+        "Resource": "arn:aws:kms:<REGION>:<ACCOUNT_ID>:key/<CMK_ID>",
+        "Condition": { "StringEquals": { "kms:ViaService": "secretsmanager.<REGION>.amazonaws.com" } }
+      }
+    ]
+  },
+  "agentExecutionRoleSecrets": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ReadOnlyTheAgentSecrets",
+        "Effect": "Allow",
+        "Action": "secretsmanager:GetSecretValue",
+        "Resource": [
+          "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:lumen/prod/app-*",
+          "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:lumen/prod/llm-*",
+          "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:lumen/prod/redis-cache-*"
+        ]
+      },
+      {
+        "Sid": "DecryptOnlyViaSecretsManager",
+        "Effect": "Allow",
+        "Action": "kms:Decrypt",
+        "Resource": "arn:aws:kms:<REGION>:<ACCOUNT_ID>:key/<CMK_ID>",
+        "Condition": { "StringEquals": { "kms:ViaService": "secretsmanager.<REGION>.amazonaws.com" } }
+      }
+    ]
+  },
+  "note": "The agent policy references lumen/prod/app-* only for AGENT_API_KEY. If you want the agent to be unable to read JWT_SECRET/CSRF_SECRET, store AGENT_API_KEY in its own secret (lumen/prod/agent-key) and grant each role only its own secrets."
+}

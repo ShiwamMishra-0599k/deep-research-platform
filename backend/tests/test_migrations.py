@@ -2,11 +2,11 @@
 import uuid
 
 import pytest
-from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, text
 
+from alembic import command
 from app.migrate import _alembic_config, run_migrations
 from tests.conftest import TEST_DB_URL, reset_database_schema
 
@@ -53,7 +53,7 @@ def _seed_legacy_data(eng):
 
 def test_fresh_database_migrates_to_head_with_expected_schema(fresh_schema):
     run_migrations(TEST_DB_URL)
-    assert _version() == "0002"
+    assert _version() == "0003"
     insp = inspect(_engine())
     assert {"users", "conversations", "messages", "alembic_version"} <= set(insp.get_table_names())
     msg_idx = {i["name"] for i in insp.get_indexes("messages")}
@@ -76,7 +76,7 @@ def test_foreign_keys_cascade_on_delete(fresh_schema):
 def test_migrations_are_idempotent(fresh_schema):
     run_migrations(TEST_DB_URL)
     run_migrations(TEST_DB_URL)
-    assert _version() == "0002"
+    assert _version() == "0003"
 
 
 def test_models_and_migrations_have_no_drift(fresh_schema):
@@ -101,7 +101,7 @@ def test_legacy_create_all_database_is_adopted_without_data_loss(fresh_schema):
 
     run_migrations(TEST_DB_URL)
 
-    assert _version() == "0002"
+    assert _version() == "0003"
     with eng.connect() as c:
         assert c.execute(text("SELECT email FROM users WHERE id=:i"), {"i": uid}).scalar() == "old@example.com"
         assert c.execute(text("SELECT title FROM conversations WHERE id=:c"), {"c": cid}).scalar() == "Legacy chat"
@@ -147,7 +147,7 @@ def test_downgrade_to_base_and_back(fresh_schema):
         command.downgrade(cfg, "base")
         assert "users" not in inspect(conn).get_table_names()
     run_migrations(TEST_DB_URL)
-    assert _version() == "0002"
+    assert _version() == "0003"
 
 
 def test_concurrent_migration_runs_are_serialised(fresh_schema):
@@ -164,4 +164,35 @@ def test_concurrent_migration_runs_are_serialised(fresh_schema):
     ts = [threading.Thread(target=go) for _ in range(4)]
     [t.start() for t in ts]
     [t.join() for t in ts]
-    assert errors == [] and _version() == "0002"
+    assert errors == [] and _version() == "0003"
+
+
+def test_0003_creates_and_drops_only_the_sessions_table(fresh_schema):
+    run_migrations(TEST_DB_URL)
+    insp = inspect(_engine())
+    assert "auth_sessions" in insp.get_table_names()
+    cols = {c["name"] for c in insp.get_columns("auth_sessions")}
+    assert {"id", "user_id", "refresh_hash", "prev_refresh_hash", "idle_expires_at", "absolute_expires_at",
+            "revoked_at", "revoked_reason", "ip_hash", "user_agent"} <= cols
+    assert "uq_auth_sessions_refresh_hash" in {u["name"] for u in insp.get_unique_constraints("auth_sessions")}
+    assert any(fk["referred_table"] == "users" and fk["options"].get("ondelete") == "CASCADE" for fk in insp.get_foreign_keys("auth_sessions"))
+    eng = _engine()
+    uid, cid = _seed_legacy_data(eng)
+    with eng.connect() as conn:
+        command.downgrade(_alembic_config(conn), "0002")
+        t = set(inspect(conn).get_table_names())
+        assert "auth_sessions" not in t and {"users", "conversations", "messages"} <= t   # user data untouched
+        assert conn.execute(text("SELECT count(*) FROM messages")).scalar() == 1
+    run_migrations(TEST_DB_URL)
+    assert _version() == "0003"
+
+
+def test_legacy_database_at_0002_upgrades_to_0003_keeping_data(fresh_schema):
+    _upgrade_to("0002")
+    eng = _engine()
+    uid, cid = _seed_legacy_data(eng)
+    run_migrations(TEST_DB_URL)
+    assert _version() == "0003"
+    with eng.connect() as c:
+        assert c.execute(text("SELECT email FROM users WHERE id=:i"), {"i": uid}).scalar() == "old@example.com"
+        assert c.execute(text("SELECT count(*) FROM auth_sessions")).scalar() == 0

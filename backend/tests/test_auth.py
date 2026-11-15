@@ -1,8 +1,8 @@
 import base64
-import uuid
 import json
 import threading
 import time
+import uuid
 
 import pytest
 from jose import jwt as jose_jwt

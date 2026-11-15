@@ -1,0 +1,58 @@
+# EXAMPLE reverse proxy for the same-origin topology (one public origin: static SPA + /api/*).
+# Syntax-reviewed only: this file has NOT been run against a real nginx in this repository.
+# Replace <PUBLIC_HOST>, certificate paths and the backend address. TLS terminates here (or at an ALB in front of it).
+
+server {
+    listen 80;
+    server_name <PUBLIC_HOST>;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name <PUBLIC_HOST>;
+
+    ssl_certificate     /etc/nginx/tls/fullchain.pem;
+    ssl_certificate_key /etc/nginx/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # --- security headers for the SPA (the API sets its own) -------------------------------------------------
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    # Strict CSP: no inline script. Leaflet CSS (unpkg, SRI-pinned), Google Fonts and OpenStreetMap tiles are the only third-party hosts.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+
+    # --- static single-page app -------------------------------------------------------------------------------
+    root /usr/share/nginx/html;          # the output of `npm run build` (frontend/dist)
+    location / {
+        try_files $uri /index.html;
+        add_header Cache-Control "no-cache" always;   # re-validate the HTML; hashed assets below are immutable
+    }
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    # --- API: same origin, SSE-safe ---------------------------------------------------------------------------
+    location /api/ {
+        proxy_pass http://<BACKEND_HOST>:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        # The backend believes X-Forwarded-For only from addresses listed in TRUSTED_PROXY_CIDRS (this proxy's address).
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Server-Sent Events: never buffer or cache; research can run up to 300 s.
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 330s;
+        proxy_send_timeout 60s;
+
+        client_max_body_size 64k;   # matches the backend's request-size limit
+    }
+
+    # The research agent and Redis are internal; they are never proxied.
+}

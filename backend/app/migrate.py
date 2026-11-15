@@ -7,13 +7,14 @@ Safe to run on every start and from several replicas at once:
 - refuses to guess if the schema is only partly present.
 """
 import logging
-import os
 import sys
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
+
+from .dburl import resolve_database_url
 
 log = logging.getLogger("lumen.migrate")
 
@@ -30,9 +31,9 @@ def _alembic_config(connection) -> Config:
 
 
 def run_migrations(database_url: str | None = None) -> None:
-    url = database_url or os.environ.get("DATABASE_URL")
+    url = database_url or resolve_database_url()
     if not url:
-        raise RuntimeError("DATABASE_URL is not set")
+        raise RuntimeError("DATABASE_URL (or DB_HOST + DB_PASSWORD) is not set")
 
     engine = create_engine(url, connect_args={"connect_timeout": 10})
     try:

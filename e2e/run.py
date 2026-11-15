@@ -29,7 +29,7 @@ E2E_DB = "postgresql+psycopg://lumen_test:lumen_test@127.0.0.1:55432/lumen_e2e_t
 REDIS = "redis://127.0.0.1:56379/2"          # agent tool cache
 RATE_LIMIT_REDIS = "redis://127.0.0.1:56379/5"  # backend rate limits (shared by every backend instance)
 P_LLM, P_AGENT, P_API, P_WEB = 18999, 18004, 18080, 15173
-SECRETS = {"JWT_SECRET": "e2e" + "Xq7" * 14, "AGENT_API_KEY": "e2e-agent-key-" + "k3" * 12}
+SECRETS = {"JWT_SECRET": "e2e" + "Xq7" * 14, "AGENT_API_KEY": "e2e-agent-key-" + "k3" * 12, "CSRF_SECRET": "e2ecsrf" + "Mn4" * 14}
 
 AGENT_ENV = {
     "REDIS_URL": REDIS, "AGENT_API_KEY": SECRETS["AGENT_API_KEY"],
@@ -40,7 +40,7 @@ AGENT_ENV = {
 
 def backend_env(**extra):
     return {
-        "DATABASE_URL": E2E_DB, "ALLOW_INSECURE_DEV_DB": "1", "JWT_SECRET": SECRETS["JWT_SECRET"], "AGENT_API_KEY": SECRETS["AGENT_API_KEY"],
+        "DATABASE_URL": E2E_DB, "ALLOW_INSECURE_DEV_DB": "1", "JWT_SECRET": SECRETS["JWT_SECRET"], "CSRF_SECRET": SECRETS["CSRF_SECRET"], "AGENT_API_KEY": SECRETS["AGENT_API_KEY"],
         "RESEARCH_AGENT_URL": f"http://127.0.0.1:{P_AGENT}", "CORS_ALLOWED_ORIGINS": f"http://127.0.0.1:{P_WEB}",
         "QUERIES_PER_USER_PER_MINUTE": "60", "RESEARCH_TIMEOUT_SECONDS": "120",
         # Real Redis-backed limits. Per-IP limits are raised because every simulated user shares 127.0.0.1.

@@ -10,7 +10,6 @@ from app.ratelimit import SlidingWindowLimiter
 from app.research_client import AgentEvent, AgentUnavailable
 from app.routers import research as research_router
 
-
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 def parse_sse(text: str) -> list[tuple[str, dict | str]]:

@@ -10,7 +10,7 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from .config import settings
 from .db import engine
-from .middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
+from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, SecurityHeadersMiddleware
 from .ratelimit import RateLimitUnavailable, get_backend
 from .routers import auth, conversations, research
 
@@ -32,13 +32,14 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Lumen Backend", version="2.1.0", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 # Outermost last: size limit runs before routing, headers wrap every response (incl. errors).
+app.add_middleware(OriginCheckMiddleware)  # innermost: runs for every auth type, after CORS has handled preflights
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-CSRF-Token", "X-Auth-Mode"],
     max_age=600,
 )
 app.add_middleware(SecurityHeadersMiddleware)

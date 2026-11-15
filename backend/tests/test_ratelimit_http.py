@@ -1,6 +1,7 @@
 """Rate limiting as users and attackers experience it: HTTP status codes, Retry-After, proxies, outages."""
 import asyncio
 import json
+import uuid
 
 import httpx
 import pytest
@@ -13,8 +14,6 @@ from app.ratelimit import ConcurrencyGuard, RedisBackend, SlidingWindowLimiter
 from app.research_client import AgentEvent
 from app.routers import auth as auth_router
 from app.routers import research as research_router
-
-import uuid
 
 
 def _n() -> str:

@@ -104,3 +104,39 @@ class BodySizeLimitMiddleware:
             }
         )
         await send({"type": "http.response.body", "body": body})
+
+
+_UNSAFE = {b"POST", b"PUT", b"PATCH", b"DELETE"}
+
+
+class OriginCheckMiddleware:
+    """Reject cross-origin state-changing requests to /api/ (defence in depth for cookie auth; protects login too).
+
+    * `Origin` present: must exactly equal one of CORS_ALLOWED_ORIGINS ("null" is rejected).
+    * `Origin` absent but `Sec-Fetch-Site` present: must be same-origin / same-site / none.
+    * Neither header (curl, server-to-server, tests): allowed; such clients cannot be driven by a victim's browser.
+    SameSite cookies cannot separate two ports on the same host, so this check carries that case.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("method", "").encode() not in _UNSAFE or not scope.get("path", "").startswith("/api/"):
+            return await self.app(scope, receive, send)
+
+        headers = {k: v for k, v in scope.get("headers", [])}
+        origin = headers.get(b"origin")
+        site = headers.get(b"sec-fetch-site")
+        ok = True
+        if origin is not None:
+            ok = origin.decode("latin-1") in settings.cors_origins
+        elif site is not None:
+            ok = site.decode("latin-1").lower() in ("same-origin", "same-site", "none")
+        if not ok:
+            body = json.dumps({"detail": "Cross-origin request rejected"}).encode()
+            await send({"type": "http.response.start", "status": 403,
+                        "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+            await send({"type": "http.response.body", "body": body})
+            return
+        await self.app(scope, receive, send)

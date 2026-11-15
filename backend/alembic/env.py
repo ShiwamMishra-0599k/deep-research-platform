@@ -1,7 +1,7 @@
-import os
+from sqlalchemy import create_engine, pool
 
 from alembic import context
-from sqlalchemy import create_engine, pool
+from app.dburl import resolve_database_url
 
 config = context.config
 
@@ -16,7 +16,7 @@ except Exception:  # noqa: BLE001
 
 
 def _url() -> str:
-    url = os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    url = resolve_database_url() or config.get_main_option("sqlalchemy.url")
     if not url:
         raise RuntimeError("Set DATABASE_URL to run migrations")
     return url
