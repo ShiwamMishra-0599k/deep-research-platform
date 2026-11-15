@@ -71,6 +71,18 @@ describe("conversation list", () => {
     expect(useChat.getState().activeId).toBeNull();
   });
 
+  it("REGRESSION (retry loop under React Router 7): a conversation that fails to load is requested exactly once", async () => {
+    http.get.mockImplementation(async (url: string) => {
+      if (url === "/conversations") return { data: LIST };
+      throw { response: { status: 404 } };
+    });
+    renderSidebar("/c/gone");
+    await waitFor(() => expect(where()).toBe("/"));
+    await new Promise((r) => setTimeout(r, 100)); // give any runaway retry a chance to show itself
+    const attempts = http.get.mock.calls.filter((c) => c[0] === "/conversations/gone/messages").length;
+    expect(attempts).toBe(1);
+  });
+
   it("a failing conversation list request does not crash the page (401 is handled globally)", async () => {
     http.get.mockRejectedValue({ response: { status: 401 } });
     renderSidebar("/");

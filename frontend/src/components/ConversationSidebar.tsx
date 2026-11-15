@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Plus, Trash2, LogOut } from "lucide-react";
 import { useChat } from "@/store/chat";
@@ -21,9 +21,23 @@ export default function ConversationSidebar({ open, onClose }: { open: boolean; 
   const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
 
   useEffect(() => { load().catch(() => {}); }, [load]);  // 401 is handled globally (redirect to sign-in)
+  // A conversation that failed to load must not be retried while the redirect home is still pending: React Router 7
+  // applies navigations in a transition, so the store update re-runs this effect first and, without this guard, would
+  // re-request the same failing conversation in an endless loop (and the redirect would never commit).
+  const failedId = useRef<string | null>(null);
   useEffect(() => {
-    if (routeId && routeId !== activeId) {
-      select(routeId).then((ok) => { if (!ok) nav("/", { replace: true }); });
+    if (failedId.current && failedId.current !== routeId) failedId.current = null; // moved elsewhere: allow a later retry
+    if (routeId && routeId !== activeId && failedId.current !== routeId) {
+      // Pessimistic: mark the id BEFORE the request. The store resets activeId on failure and re-renders this effect
+      // before the promise callback below runs, so marking only afterwards would allow one extra request.
+      failedId.current = routeId;
+      select(routeId).then((ok) => {
+        if (ok) {
+          if (failedId.current === routeId) failedId.current = null;
+        } else {
+          nav("/", { replace: true });
+        }
+      });
     }
   }, [routeId, activeId, select, nav]);
 
