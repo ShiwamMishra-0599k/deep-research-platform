@@ -1,4 +1,5 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { authHeaders, baseURL, crossOrigin, endSession, refreshSession } from "@/lib/api";
 
 export interface SseEvent {
   event?: string;
@@ -21,39 +22,50 @@ export class SseHttpError extends Error {
   }
 }
 
-const baseURL = import.meta.env.VITE_API_URL || "/api";
+/** Internal: the session was refreshed, so the stream request must be opened again (once). */
+class ReopenStream extends Error {}
 
-export async function postSse(path: string, body: unknown, handlers: SseHandlers) {
-  const token = localStorage.getItem("auth_token");
+async function attempt(path: string, body: unknown, handlers: SseHandlers, retried: boolean): Promise<void> {
   await fetchEventSource(`${baseURL}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...authHeaders("POST"), // X-Auth-Mode + X-CSRF-Token (this is a state-changing POST); never Authorization
     },
+    ...(crossOrigin ? { credentials: "include" as const } : {}),
     body: JSON.stringify(body),
     signal: handlers.signal,
     openWhenHidden: true,
     async onopen(res) {
       if (res.ok) return;
-      // Same handling as the axios interceptor: an expired/invalid session goes back to sign-in.
       if (res.status === 401) {
-        localStorage.removeItem("auth_token");
-        localStorage.removeItem("auth_user");
-        if (!location.pathname.startsWith("/login") && !location.pathname.startsWith("/register")) {
-          location.href = "/login";
+        if (!retried) {
+          const r = await refreshSession(); // shared with every other in-flight 401
+          if (r === "ok") throw new ReopenStream();
+          if (r === "ended") endSession();
+        } else {
+          endSession(); // refreshed once already and still unauthorised
         }
       }
       throw new SseHttpError(res.status);
     },
     onmessage: handlers.onEvent,
     onerror(err) {
-      handlers.onError?.(err);
+      if (!(err instanceof ReopenStream)) handlers.onError?.(err);
       throw err;  // stop retrying
     },
     onclose() {
       handlers.onClose?.();
     },
   });
+}
+
+export async function postSse(path: string, body: unknown, handlers: SseHandlers) {
+  try {
+    await attempt(path, body, handlers, false);
+  } catch (e) {
+    if (!(e instanceof ReopenStream)) throw e;
+    await attempt(path, body, handlers, true);
+  }
 }

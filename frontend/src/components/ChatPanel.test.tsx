@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() }));
-vi.mock("@/lib/api", () => ({ api: http, apiError: () => "" }));
+vi.mock("@/lib/api", () => ({ api: http, apiError: () => "", onSessionEnded: () => () => {} }));
 
 type Handlers = { onEvent: (m: { event?: string; data: string }) => void; onError?: (e: unknown) => void; onClose?: () => void; signal?: AbortSignal };
 const sse = vi.hoisted(() => ({ calls: [] as { path: string; body: any; h: any }[], script: null as null | ((h: any) => Promise<void>) }));
@@ -62,7 +62,7 @@ beforeEach(() => {
   http.get.mockResolvedValue({ data: [] });
   sse.calls = [];
   sse.script = null;
-  useAuth.setState({ user: { id: "u", email: "a@b.co", name: "Ada Lovelace" }, loading: false });
+  useAuth.setState({ user: { id: "u", email: "a@b.co", name: "Ada Lovelace" }, status: "authenticated", loading: false, booted: true });
   useChat.setState({ conversations: [{ id: "c1", title: "Existing", createdAt: "t", updatedAt: "t" }], activeId: "c1", messages: { c1: [] }, loading: false });
 });
 

@@ -34,7 +34,7 @@ const where = () => screen.getAllByTestId("where").at(-1)!.textContent;
 
 beforeEach(() => {
   Object.values(http).forEach((f) => f.mockReset());
-  useAuth.setState({ user: null, loading: false });
+  useAuth.setState({ user: null, status: "anonymous", loading: false, booted: true });
   useChat.setState({ conversations: [], activeId: null, messages: {}, loading: false });
 });
 
@@ -49,14 +49,16 @@ describe("Login page", () => {
     expect(screen.getByLabelText("Email")).toBeRequired();
   });
 
-  it("successful sign-in stores the session and goes to the workspace", async () => {
+  it("successful sign-in authenticates in memory only (nothing readable by script is stored) and goes to the workspace", async () => {
     http.post.mockResolvedValue({ data: { token: "tok", id: "u1", email: "ada@example.com", name: "Ada" } });
     renderAt("/login");
     await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(screen.getByLabelText("Password"), "correct-horse-1{Enter}");
     await waitFor(() => expect(where()).toBe("/"));
     expect(http.post).toHaveBeenCalledWith("/auth/login", { email: "ada@example.com", password: "correct-horse-1" });
-    expect(localStorage.getItem("auth_token")).toBe("tok");
+    expect(localStorage.length).toBe(0); // HttpOnly cookie session: no token, no identity in web storage
+    expect(useAuth.getState().status).toBe("authenticated");
+    expect(JSON.stringify(useAuth.getState())).not.toContain("tok"); // even a body token (legacy dual mode) is never kept
     expect(useAuth.getState().user?.name).toBe("Ada");
   });
 
@@ -127,7 +129,8 @@ describe("Register page", () => {
     await userEvent.type(screen.getByLabelText("Password"), "longenough1{Enter}");
     await waitFor(() => expect(where()).toBe("/"));
     expect(http.post).toHaveBeenCalledWith("/auth/register", { email: "bob@example.com", password: "longenough1", name: "Bob" });
-    expect(localStorage.getItem("auth_token")).toBe("tok2");
+    expect(localStorage.length).toBe(0);
+    expect(useAuth.getState().status).toBe("authenticated");
   });
 
   it("duplicate email: shows the server message", async () => {

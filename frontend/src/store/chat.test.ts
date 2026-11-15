@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation, Message } from "@/types";
 
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn(), patch: vi.fn() }));
-vi.mock("@/lib/api", () => ({ api: http, apiError: () => "" }));
+vi.mock("@/lib/api", () => ({ api: http, apiError: () => "", onSessionEnded: () => () => {} }));
 
 import { useChat } from "@/store/chat";
 

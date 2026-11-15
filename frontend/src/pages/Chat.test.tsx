@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() }));
-vi.mock("@/lib/api", () => ({ api: http, apiError: () => "" }));
+vi.mock("@/lib/api", () => ({ api: http, apiError: () => "", onSessionEnded: () => () => {} }));
 vi.mock("@/lib/sse", () => ({ postSse: vi.fn(), SseHttpError: class extends Error {} }));
 vi.mock("@/components/blocks/LeafletMapBlock", () => ({ default: () => null }));
 
@@ -15,7 +15,7 @@ import { useChat } from "@/store/chat";
 beforeEach(() => {
   Object.values(http).forEach((f) => f.mockReset());
   http.get.mockResolvedValue({ data: [] });
-  useAuth.setState({ user: { id: "u", email: "a@b.co", name: "Ada" } });
+  useAuth.setState({ user: { id: "u", email: "a@b.co", name: "Ada" }, status: "authenticated", booted: true });
   useChat.setState({ conversations: [], activeId: null, messages: {}, loading: false });
 });
 

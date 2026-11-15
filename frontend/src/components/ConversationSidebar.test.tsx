@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() }));
-vi.mock("@/lib/api", () => ({ api: http, apiError: () => "" }));
+vi.mock("@/lib/api", () => ({ api: http, apiError: () => "", onSessionEnded: () => () => {} }));
 
 import ConversationSidebar from "@/components/ConversationSidebar";
 import { useAuth } from "@/store/auth";
@@ -34,7 +34,8 @@ const where = () => screen.getByTestId("where").textContent;
 beforeEach(() => {
   Object.values(http).forEach((f) => f.mockReset());
   http.get.mockImplementation(async (url: string) => (url === "/conversations" ? { data: LIST } : { data: [] }));
-  useAuth.setState({ user: { id: "u1", email: "ada@example.com", name: "Ada" }, loading: false });
+  http.post.mockResolvedValue({ data: {} }); // /auth/logout
+  useAuth.setState({ user: { id: "u1", email: "ada@example.com", name: "Ada" }, status: "authenticated", loading: false, booted: true });
   useChat.setState({ conversations: [], activeId: null, messages: {}, loading: false });
 });
 
@@ -143,8 +144,10 @@ describe("account and drawer", () => {
     await within(nav()).findByRole("button", { name: "Bitcoin in INR" });
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(where()).toBe("/login");
+    expect(http.post).toHaveBeenCalledWith("/auth/logout"); // server-side revocation, not just a local reset
     expect(localStorage.getItem("auth_token")).toBeNull();
     expect(useAuth.getState().user).toBeNull();
+    expect(useAuth.getState().status).toBe("anonymous");
     expect(useChat.getState().conversations).toEqual([]);
   });
 

@@ -21,9 +21,13 @@ vi.mock("@microsoft/fetch-event-source", () => ({
   },
 }));
 
+const refresh = vi.hoisted(() => vi.fn());
+const endSession = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/api", async () => ({ ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")), refreshSession: refresh, endSession }));
+
 import { postSse, SseHttpError } from "@/lib/sse";
 
-beforeEach(() => { fes.calls = []; fes.script = null; });
+beforeEach(() => { fes.calls = []; fes.script = null; refresh.mockReset(); endSession.mockReset(); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 const noop = { onEvent: () => {} };
@@ -40,12 +44,21 @@ describe("request", () => {
     expect(opts.openWhenHidden).toBe(true);
   });
 
-  it("adds Authorization only when a token is stored", async () => {
+  it("sends cookie-mode headers and NEVER Authorization, even with a legacy token in storage", async () => {
+    localStorage.setItem("auth_token", "legacy");
     await postSse("/x", {}, noop);
-    expect(fes.calls[0].opts.headers.Authorization).toBeUndefined();
-    localStorage.setItem("auth_token", "tok-9");
+    const h = fes.calls[0].opts.headers;
+    expect(h["X-Auth-Mode"]).toBe("cookie");
+    expect(h.Authorization).toBeUndefined();
+  });
+
+  it("adds the CSRF token (state-changing POST) when the cookie exists, and omits it otherwise", async () => {
     await postSse("/x", {}, noop);
-    expect(fes.calls[1].opts.headers.Authorization).toBe("Bearer tok-9");
+    expect(fes.calls[0].opts.headers["X-CSRF-Token"]).toBeUndefined();
+    document.cookie = "lumen_csrf=csrf-sse";
+    await postSse("/x", {}, noop);
+    expect(fes.calls[1].opts.headers["X-CSRF-Token"]).toBe("csrf-sse");
+    document.cookie = "lumen_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
   });
 
   it("passes the AbortSignal through so the caller can cancel the stream", async () => {
@@ -72,25 +85,58 @@ describe("onopen", () => {
     expect(loc.assigned).toEqual([]);
   });
 
-  it("401: purges credentials, redirects to /login and still throws SseHttpError(401)", async () => {
+  it("401 then refresh ok: re-opens the stream ONCE and delivers its events; no error, no redirect", async () => {
     const loc = stubLocation("/c/abc");
-    localStorage.setItem("auth_token", "old");
-    localStorage.setItem("auth_user", "{}");
-    fes.script = async (o) => { await o.onopen({ ok: false, status: 401 }); };
+    refresh.mockResolvedValue("ok");
+    const got: unknown[] = [];
+    let n = 0;
+    fes.script = async (o) => {
+      n++;
+      if (n === 1) await o.onopen({ ok: false, status: 401 }).catch((e) => o.onerror(e));
+      else o.onmessage({ event: "blocks", data: "x" });
+    };
+    const onError = vi.fn();
+    await postSse("/x", {}, { onEvent: (m) => got.push(m), onError });
+    expect(fes.calls).toHaveLength(2);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(got).toEqual([{ event: "blocks", data: "x" }]);
+    expect(onError).not.toHaveBeenCalled(); // the internal re-open signal never leaks to the caller
+    expect(endSession).not.toHaveBeenCalled();
+    expect(loc.assigned).toEqual([]);
+  });
+
+  it("401 on the re-opened stream too: ends the session, throws SseHttpError(401), never a third request", async () => {
+    refresh.mockResolvedValue("ok");
+    let n = 0;
+    fes.script = async (o) => {
+      n++;
+      try { await o.onopen({ ok: false, status: 401 }); } catch (e) { o.onerror(e); }
+    };
     const err = await postSse("/x", {}, noop).catch((e) => e);
     expect(err).toBeInstanceOf(SseHttpError);
     expect(err.status).toBe(401);
-    expect(localStorage.getItem("auth_token")).toBeNull();
-    expect(localStorage.getItem("auth_user")).toBeNull();
-    expect(loc.assigned).toEqual(["/login"]);
+    expect(n).toBe(2);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(endSession).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["/login", "/register"])("401 on %s does not redirect again", async (path) => {
-    const loc = stubLocation(path);
-    fes.script = async (o) => { await o.onopen({ ok: false, status: 401 }); };
-    await postSse("/x", {}, noop).catch(() => {});
-    expect(loc.assigned).toEqual([]);
+  it("401 and the session is over (refresh 'ended'): ends the session and throws SseHttpError(401) without re-opening", async () => {
+    refresh.mockResolvedValue("ended");
+    fes.script = async (o) => { try { await o.onopen({ ok: false, status: 401 }); } catch (e) { o.onerror(e); } };
+    const err = await postSse("/x", {}, noop).catch((e) => e);
+    expect(err).toBeInstanceOf(SseHttpError);
+    expect(fes.calls).toHaveLength(1);
+    expect(endSession).toHaveBeenCalledTimes(1);
   });
+
+  it("401 and a TRANSIENT refresh failure: throws SseHttpError(401) but does NOT end the session", async () => {
+    refresh.mockResolvedValue("failed");
+    fes.script = async (o) => { try { await o.onopen({ ok: false, status: 401 }); } catch (e) { o.onerror(e); } };
+    const err = await postSse("/x", {}, noop).catch((e) => e);
+    expect(err).toBeInstanceOf(SseHttpError);
+    expect(endSession).not.toHaveBeenCalled();
+  });
+
 });
 
 describe("stream callbacks", () => {

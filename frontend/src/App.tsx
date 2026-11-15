@@ -6,8 +6,16 @@ import Register from "@/pages/Register";
 import Chat from "@/pages/Chat";
 
 function Protected({ children }: { children: JSX.Element }) {
-  const user = useAuth((s) => s.user);
-  if (!user) return <Navigate to="/login" replace />;
+  const status = useAuth((s) => s.status);
+  // While the boot request (/auth/me) is in flight we do not know yet: showing the login page would flash on every reload.
+  if (status === "loading") {
+    return (
+      <div role="status" aria-busy="true" aria-live="polite" className="h-dvh grid place-items-center bg-canvas text-sm text-muted">
+        Loading…
+      </div>
+    );
+  }
+  if (status !== "authenticated") return <Navigate to="/login" replace />;
   return children;
 }
 
