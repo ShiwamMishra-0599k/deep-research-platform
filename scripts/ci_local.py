@@ -115,8 +115,7 @@ def job_docker():
 
 def job_security():
     run("security: bandit", uvx("bandit", "-q", "-r", "backend/app", "backend/alembic", "research-agent/src"))
-    run("security: pip-audit backend", uvx("pip-audit", "-r", "backend/requirements.txt", "--no-deps", "--disable-pip",
-                                           "--ignore-vuln", "PYSEC-2026-4298"))
+    run("security: pip-audit backend (no exceptions)", uvx("pip-audit", "-r", "backend/requirements.txt", "--no-deps", "--disable-pip"))
     run("security: pip-audit agent (locked set)", uvx("pip-audit", "-r", "research-agent/requirements.lock", "--no-deps", "--disable-pip"))
 
 

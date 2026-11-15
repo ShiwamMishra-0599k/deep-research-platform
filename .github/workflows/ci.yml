@@ -197,7 +197,7 @@ jobs:
       - run: pip install bandit==1.9.4 pip-audit==2.10.1
       - name: bandit (static analysis)
         run: bandit -q -r backend/app backend/alembic research-agent/src
-      - name: "pip-audit backend (python-jose PYSEC-2026-4298 is an accepted, documented exception: SECURITY_REVIEW.md)"
-        run: pip-audit -r backend/requirements.txt --no-deps --disable-pip --ignore-vuln PYSEC-2026-4298
+      - name: pip-audit backend (no exceptions)
+        run: pip-audit -r backend/requirements.txt --no-deps --disable-pip
       - name: pip-audit research-agent (the exact locked set that ships in the image)
         run: pip-audit -r research-agent/requirements.lock --no-deps --disable-pip

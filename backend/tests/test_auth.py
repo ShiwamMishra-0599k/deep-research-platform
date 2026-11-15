@@ -5,14 +5,14 @@ import time
 import uuid
 
 import pytest
-from jose import jwt as jose_jwt
+import jwt as pyjwt
 
 from app.config import settings
 from app.routers import auth as auth_router
 
 
 def _forge(claims: dict, key: str | None = None, alg: str = "HS256") -> str:
-    return jose_jwt.encode(claims, key or settings.jwt_secret, algorithm=alg)
+    return pyjwt.encode(claims, key or settings.jwt_secret, algorithm=alg)
 
 
 def _claims(user_id: str, **over) -> dict:
@@ -155,7 +155,7 @@ def test_token_expiry(client, alice):
 
 
 def test_newly_issued_token_has_expected_claims_and_lifetime(alice):
-    claims = jose_jwt.get_unverified_claims(alice["token"])
+    claims = pyjwt.decode(alice["token"], options={"verify_signature": False})
     assert claims["iss"] == settings.jwt_issuer and claims["aud"] == settings.jwt_audience
     assert claims["sub"] == alice["id"] and "jti" in claims
     assert claims["exp"] - claims["iat"] == settings.jwt_expiration_minutes * 60

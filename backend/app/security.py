@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 
 from .config import settings
@@ -75,9 +76,9 @@ def decode_token(token: str) -> dict | None:
             algorithms=[_ALG],  # pinned: rejects `alg: none` and algorithm-confusion
             audience=settings.jwt_audience,
             issuer=settings.jwt_issuer,
-            options={"require_exp": True, "require_sub": True, "require_iat": True},
+            options={"require": ["exp", "sub", "iat"]},
         )
-    except JWTError:
+    except PyJWTError:
         return None
     try:
         uuid.UUID(str(claims.get("sub")))
