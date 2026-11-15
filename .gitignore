@@ -22,3 +22,6 @@ frontend/.vite/
 
 # OS
 .DS_Store
+
+# E2E artefacts
+e2e/out/
