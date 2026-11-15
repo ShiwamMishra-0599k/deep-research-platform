@@ -26,5 +26,13 @@ frontend/.vite/
 # E2E artefacts
 e2e/out/
 
+# Generated test reports
+frontend/coverage/
+coverage/
+.coverage
+htmlcov/
+
 # DB backups (contain user data and password hashes)
 backups/
+
+*.tsbuildinfo

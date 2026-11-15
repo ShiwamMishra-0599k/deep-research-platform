@@ -1,8 +1,76 @@
-# Frontend Testing Plan (proposal — nothing here is installed or created)
+# Frontend Testing Plan and Status
 
-Status: **PLAN ONLY.** No dependency was installed, no config file was created, no frontend file was changed.
-Every version below was read from the npm registry on 2026-11-15 with the commands recorded in §3.
-Adding any of it needs the approvals in §10.
+## Status: IMPLEMENTED (approved by the user; the original plan text below is kept for rationale)
+
+| Item | Result |
+|---|---|
+| Installed (exact, `--save-exact`, dev only) | `vitest@3.2.7`, `@vitest/coverage-v8@3.2.7`, `jsdom@26.1.0`, `@testing-library/react@16.3.3`, `@testing-library/dom@10.4.2`, `@testing-library/user-event@14.6.10`, `@testing-library/jest-dom@6.10.0` |
+| Files added | `vitest.config.ts`, `src/test/setup.ts`, `src/test/location.ts`, 13 co-located `*.test.ts(x)` files; `package.json` scripts `test`, `test:watch`, `test:coverage` |
+| Application code changed | **None.** No `data-testid`, export or behaviour change was needed (all queries use roles/labels) |
+| Tests | **203 passing in 13 files**, identical across 3 consecutive runs (about 45-65 s wall including coverage instrumentation on the Windows dev machine) |
+| Coverage (v8, whole `src/`) | statements **100 %**, lines **100 %**, functions **100 %**, branches **95.62 %** |
+| Enforced thresholds (global) | statements 70, lines 70, functions 70, branches 60 (`vitest.config.ts`); verified to FAIL the run when unmet (`ERROR: Coverage for statements ... does not meet global threshold`) |
+| Typecheck / build | `tsc --noEmit` clean with tests included; `vite build` and `npm run build` pass; no test code in the production bundle |
+| Mutation proof | 7 of 7 deliberate regressions in critical behaviour were detected by the suite (see below) |
+| Run | `cd frontend && npm test` / `npm run test:coverage` (Node 22+ in CI: `jest-dom` 6.10 requires it) |
+
+Coverage is a floor, not the goal. The suite is behavioural: real zustand stores, real routing, real axios interceptors (the axios *adapter* is the
+mocked network boundary), `@microsoft/fetch-event-source` and `react-leaflet` mocked at module boundaries, no MSW.
+
+### What the 203 tests cover (by priority, as planned in section 6)
+
+- **P0** `store/auth` (login/register success and failure, token never stored inside the user object, logout clears credentials AND the chat store so the next
+  person on the tab sees nothing, a second user starts clean, synchronous hydration at store creation incl. malformed JSON), `store/chat` (select/cache/failure clears
+  only its own `activeId`, create, delete, rename, message helpers), `lib/sse` (headers, Authorization only with a token, non-2xx -> `SseHttpError(status)`, 401 purge + redirect
+  unless already on /login or /register, callbacks, abort signal), `lib/api` (Bearer interceptor, 401 purge + redirect with no loop, other statuses keep the session, `apiError`).
+- **P1** `ChatPanel` (optimistic messages, event handling for user_message/checkpoint/blocks/clarification/error/persist_error/persisted, malformed events ignored, the
+  exact user-facing message for 429/401/404/413/422/500/503/network failure, retry after failure, Stop aborts the signal, auto-scroll follows only while the user is at the
+  bottom, first-question titling, create-on-first-send, greeting by time of day), `App`/route protection (signed out never sees the workspace or triggers API calls; no
+  sign-in flash on reload), `ConfirmDialog` (role/aria, initial focus on Cancel, Tab/Shift+Tab trap, Escape, backdrop, focus restoration), `ConversationSidebar`
+  (accessible delete dialog instead of `confirm()`, active-chat delete, unloadable route redirects home, drawer), `ChatInput` (Enter/Shift+Enter, IME `isComposing`/keyCode 229, busy/Stop).
+- **P2** `BlockRenderer` (unknown type -> JSON fallback invariant), `DataTableBlock` (sort text/numeric, `aria-sort`, safe links, `javascript:` cell stays text), `InsightCardsBlock`
+  (label/value parsing, severity as text), `MarkdownBlock` (links `target=_blank rel=noreferrer`, raw HTML and `javascript:` links neutralised), `MessageBubble`, `CheckpointTrail`,
+  `LeafletMapBlock` (react-leaflet mocked), `Login`/`Register` (server error text, 429 text, network fallback, pending state, error cleared on resubmit), `Chat` page shell (skip link, drawer, Escape).
+
+### Mutation proof (the tests detect real regressions)
+
+Each mutation was applied to the application code alone, the suite run, then the file restored byte-for-byte (verified: no diff against HEAD):
+
+| Mutation | Result |
+|---|---|
+| `logout()` no longer resets the chat store (cross-user leak) | **killed** (3 failing tests: auth store, sidebar) |
+| SSE `onopen` 401 no longer redirects to /login | **killed** (1) |
+| `selectConversation` failure no longer clears `activeId` | **killed** (2: chat store, sidebar) |
+| Markdown links lose `rel="noreferrer"` | **killed** (1) |
+| `ConfirmDialog` ignores Escape | **killed** (2) |
+| axios request interceptor stops sending the Bearer token | **killed** (1) |
+| `ChatPanel` ignores the `persist_error` event | **killed** (1) |
+
+### Not covered / cannot reasonably be covered yet
+
+| Area | Why | Where it IS covered |
+|---|---|---|
+| Real Leaflet map rendering, tiles, pin visuals, popups | jsdom has no layout engine; `react-leaflet` is mocked, so the 100 % on `LeafletMapBlock` proves our wiring (labels, counts, props), not the map | `e2e/scenario.mjs` renders the real map in a real browser |
+| Layout, responsive behaviour, the drawer's CSS transform, `prefers-reduced-motion`, colour contrast, focus ring appearance | no CSS/layout in jsdom (`css: false`); tests assert class names/ARIA only (e.g. `invisible` on the closed drawer) | e2e browser run and the programmatic contrast scan (`DESIGN.md` section 9) |
+| Real SSE over the network (chunking, reconnect, proxies, `fetch` streaming) | the library is mocked at its boundary and its callbacks driven; our handling of every event is tested, the transport is not | e2e journey against the real backend and agent |
+| Real server error bodies | API error shapes are hand-written in the tests; they can drift from the backend | backend tests and the e2e journey |
+| Framer-motion animation timing | not asserted (animations are decorative and `MotionConfig reducedMotion` is app-level) | none (by design) |
+| Cross-browser behaviour (Firefox, Safari), mobile devices, screen readers | jsdom only; ARIA roles/names/focus are asserted but no assistive technology is run | not covered anywhere yet |
+| `src/main.tsx`, `src/vite-env.d.ts` | entry point and ambient types: excluded from coverage by design | e2e |
+| Branch coverage gaps (about 4 % of branches) | defensive branches such as `?? []` fallbacks in ChatPanel (88 % branch) and one rarely hit default in the table/dialog | n/a |
+| HttpOnly-cookie session behaviour | not implemented yet; when `docs/COOKIE_AUTH_MIGRATION_PLAN.md` lands the auth store/api/sse tests above are the safety net and must be extended first | n/a |
+
+### Dev-tooling advisories introduced by the new dependencies (production audit unchanged)
+
+`npm audit --omit=dev` is unchanged (2 moderate, 0 high/critical: react-router, documented). The full audit gains **vitest (critical)** and **tinypool (critical)**
+(`GHSA-82fw-gwwq-j7x9` `@vitest/mocker` path traversal / arbitrary file read; `GHSA-5gmw-xhrv-c9v3`, `GHSA-85c8-ppgw-ccpr` tinypool prototype pollution to RCE via
+worker options) plus `@vitest/coverage-v8`/`test-exclude` (moderate). They affect the dev-time test runner executing untrusted *test code or options* and are not
+shipped. The only npm-offered fix is Vitest 5.1.0, a semver-major that is not compatible with this repo's Vite 5.4 (Vitest 4+ needs Vite 6+), so it is deferred together
+with the Vite upgrade. Revisit before deployment; CI gates on `npm audit --omit=dev --audit-level=high` (production deps only).
+
+---
+
+## Original plan (kept for rationale)
 
 ## 1. Current state (verified in the repository)
 
@@ -180,27 +248,32 @@ Test location: co-located `src/**/<name>.test.ts(x)`; shared helpers in `src/tes
 | P2 | `CheckpointTrail`, `MessageBubble` | sources capped at 8 with `(opens in a new tab)`, follow-ups callback, `aria-busy` while streaming | |
 | — | Map rendering, layout, contrast, drawer | **Out of scope for jsdom** — remains covered by `e2e/scenario.mjs` and the programmatic contrast scan | jsdom has no layout engine |
 
-## 7. CI integration (proposed job; assumes the CI plan being built in this milestone)
+## 7. CI integration (implemented locally; the parent wires it into `.github/workflows/ci.yml`)
 
 ```yaml
-frontend-tests:
-  runs-on: ubuntu-latest
-  timeout-minutes: 10
-  steps:
-    - uses: actions/checkout@<pinned-sha>          # pin per CI policy
-    - uses: actions/setup-node@<pinned-sha>
-      with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }   # jest-dom 6.10 needs Node >= 22
-    - run: npm ci
-      working-directory: frontend
-    - run: npx tsc --noEmit
-      working-directory: frontend
-    - run: npx vitest run --coverage
-      working-directory: frontend
+  frontend:
+    name: Frontend (TypeScript, build, tests + coverage, audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@<pinned-sha>
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@<pinned-sha>
+        with: { node-version: "22", cache: npm, cache-dependency-path: frontend/package-lock.json }   # jest-dom 6.10 needs Node >= 22
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vite build
+      - name: Unit tests with enforced coverage (statements/lines/functions 70, branches 60)
+        run: npm run test:coverage
+      - name: Dependency audit (production deps, fail on high/critical)
+        run: npm audit --omit=dev --audit-level=high
 ```
 
-Coverage thresholds — **proposal, not measurements** (no tests exist, so there is no current number): start with a gate only on the files that carry
-security-relevant logic (`src/store/**`, `src/lib/**`) at a level the first suite demonstrably meets (suggest ≥ 85 % lines once Stage 2 lands, set from the
-measured value minus a small margin), no global threshold until Stage 4, then ratchet upward only. A coverage gate is a policy decision (§10).
+Thresholds are enforced by `vitest.config.ts` (global: statements 70, lines 70, functions 70, branches 60) and fail the job when unmet. Measured today: 100 / 100 / 100 / 95.62.
+Do not chase 100 %: when adding a feature, add the behavioural test first and let the number follow.
 
 ## 8. Risks and costs
 
@@ -224,10 +297,10 @@ measured value minus a small margin), no global threshold until Stage 4, then ra
 
 No stage leaves a half-migrated state: Stage 1 is additive (tests are not part of `vite build`), and every stage can be reverted by removing the added files/deps.
 
-## 10. DECISIONS NEEDING USER APPROVAL
+## 10. Decisions (resolved)
 
-1. **Add these 7 devDependencies** (+151 packages in the lockfile, dev-only) — `vitest@3.2.7`, `@vitest/coverage-v8@3.2.7`, `jsdom@26.1.0`, `@testing-library/react@16.3.3`, `@testing-library/dom@10.4.2`, `@testing-library/user-event@14.6.10`, `@testing-library/jest-dom@6.10.0`? (Yes/No; or choose Vitest 2.1.9.)
-2. **Enable a CI coverage gate** (and on which paths — recommended: `src/store`, `src/lib`) once measured? (Yes/No/Later.)
-3. **Test location:** co-located `src/**/*.test.tsx` (recommended) vs a separate `frontend/tests/` tree?
-4. **Raise CI Node to ≥ 22** for the frontend job (jest-dom 6.10 requirement)? (Local Node is already 24.)
-5. Is it acceptable that DOM-only behaviour (maps, layout) stays covered by the browser e2e rather than unit tests?
+1. Add the 7 devDependencies: **approved and done** (exact versions above).
+2. CI coverage gate: **approved** with global thresholds 70/70/70 and branches 60 (not path-restricted, as the measured suite far exceeds them).
+3. Test location: **co-located** `src/**/*.test.ts(x)`, shared helpers in `src/test/`.
+4. CI Node >= 22: **approved** (snippet in section 7).
+5. DOM-only behaviour (maps, layout) stays covered by the browser e2e: see "Not covered" above.

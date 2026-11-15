@@ -78,6 +78,7 @@ def job_frontend():
     npm = shutil.which("npm") or "npm"
     run("frontend: tsc", [npx, "--no-install", "tsc", "--noEmit"], cwd=ROOT / "frontend")
     run("frontend: vite build", [npx, "--no-install", "vite", "build"], cwd=ROOT / "frontend")
+    run("frontend: vitest with enforced coverage", [npm, "run", "test:coverage"], cwd=ROOT / "frontend")
     run("frontend: npm audit (prod, high)", [npm, "audit", "--omit=dev", "--audit-level=high"], cwd=ROOT / "frontend")
 
 
@@ -89,6 +90,7 @@ def job_lint():
 
 def job_docker():
     env = {"JWT_SECRET": "ci-only-placeholder-jwt-0123456789abcdef0123456789", "AGENT_API_KEY": "ci-only-placeholder-agent-key",
+           "CSRF_SECRET": "ci-only-placeholder-csrf-0123456789abcdef0123456789",
            "POSTGRES_PASSWORD": "0123456789abcdef0123456789abcdef"}
     agent_env = ROOT / "research-agent" / ".env"
     created = not agent_env.exists()

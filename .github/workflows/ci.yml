@@ -107,7 +107,7 @@ jobs:
         run: python -m pytest -q -p no:cacheprovider
 
   frontend:
-    name: Frontend (TypeScript, build, audit)
+    name: Frontend (TypeScript, build, tests + coverage, audit)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -127,6 +127,8 @@ jobs:
         run: npx tsc --noEmit
       - name: Production build
         run: npx vite build
+      - name: Unit tests with enforced coverage (70% statements/lines/functions, 60% branches; vitest.config.ts)
+        run: npm run test:coverage
       - name: Dependency audit (production deps, fail on high/critical)
         run: npm audit --omit=dev --audit-level=high
 
@@ -159,6 +161,7 @@ jobs:
       # Placeholders that exist only to satisfy `required` interpolation; not secrets and never used to run anything.
       JWT_SECRET: ci-only-placeholder-jwt-0123456789abcdef0123456789
       AGENT_API_KEY: ci-only-placeholder-agent-key
+      CSRF_SECRET: ci-only-placeholder-csrf-0123456789abcdef0123456789
       POSTGRES_PASSWORD: 0123456789abcdef0123456789abcdef
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -168,7 +171,7 @@ jobs:
         run: |
           touch research-agent/.env
           docker compose config -q
-          if env -u JWT_SECRET -u AGENT_API_KEY -u POSTGRES_PASSWORD docker compose config -q 2>/dev/null; then
+          if env -u JWT_SECRET -u AGENT_API_KEY -u POSTGRES_PASSWORD -u CSRF_SECRET docker compose config -q 2>/dev/null; then
             echo "compose accepted a configuration with no secrets" >&2; exit 1
           fi
       - name: Build backend image
