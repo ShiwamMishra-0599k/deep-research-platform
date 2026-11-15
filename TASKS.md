@@ -2,6 +2,26 @@
 
 > **Direction change 2026-11-15: INR 0 budget, portfolio goal (AI/ML/Forward Deployed Engineer).** The paid evaluation and the AWS deployment are cancelled. Read `docs/ZERO_BUDGET_PLAN.md` for the revised milestones; the table below is kept for history, and rows 3 to 6 are re-scoped there.
 
+## Current plan (zero budget, portfolio goal): status 2026-11-15
+
+Full reasoning: `docs/ZERO_BUDGET_PLAN.md`. Evidence tiers are never mixed: A = scripted-model software tests, B = component evaluations without a model, C = real-model quality (**not run**).
+
+| # | Milestone | Status |
+|---|---|---|
+| 1 | Zero-budget evaluation plan; benchmark expanded to 29 cases | ✅ |
+| 2 | Observability: tokens, LLM and tool calls, estimated cost (default 0) per research | ✅ `docs/OBSERVABILITY.md`; hermetic token counts are synthetic |
+| 3 | Legacy Bearer usage counter (`python -m app.legacy_usage`) | ✅ |
+| 4 | Graceful shutdown: bounded drain, interrupted note, exit 0 | ✅ backend image measured; agent image test in progress |
+| 5 | Redis timeouts and load-test `ReadError`s | ✅ breaker defect fixed and measured; `ReadError` cause **not established**, did not recur |
+| 6 | ARM64 | ✅ native CI job green: both images build and the whole stack imports on aarch64 |
+| 7 | Soak and multi-worker | 🟡 soak done (7 min, 453 researches, 0 failures); multi-worker **invalid** (host out of memory), harness ready |
+| 8 | Tier B component evaluation | ✅ citation-support baseline, held-out 14/18 (77.8%, interval 55 to 91%) |
+| 9 | Portfolio: case study, diagrams, API reference, README, demo launcher and script, evidence audit | ✅ `docs/PORTFOLIO_GAPS.md` lists what only you can do |
+| 10 | Tier C pilot on a free local model | ⬜ **needs your approval to install Ollama and one model** |
+| 11 | Optional free-tier API run | ⬜ optional; needs an account you create |
+| - | AWS deployment | ❌ out of scope under the zero-budget rule |
+
+
 Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 
 ## Master checklist (owner-approved sequence)

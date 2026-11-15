@@ -75,11 +75,29 @@ so the floor is about 3.3 s. `CPU` is the share of the **whole 4-core machine** 
 * **The fix:** a half-open breaker. The store still counts as down for reporting, but one probe call is let through every `redis_probe_seconds` (0.25 s), so recovery is noticed within a quarter of a second. Fail-closed is unchanged during the real outage (3 tests); the limiter's six call sites use a probe-aware check.
 * **Still open:** the 0.25 s command timeout is tight for a loaded host (a 486 ms stall was seen). In fail-closed mode any stall longer than the timeout refuses requests for its duration. Raising it trades refusals for slower requests; that should be decided with a real deployment's Redis latency, which cannot be measured here.
 
+### 3b. Soak test (measured) and multi-replica scaling (attempted, no result)
+
+**Soak** (`perf/load_test.py --soak-seconds 420 --soak-conc 5`; one backend and one agent; scripted model, 1 s per call; the host was short of memory):
+
+| Measure | Result |
+|---|---|
+| Duration, load | 7 minutes, 5 concurrent users, back to back |
+| Researches | **453, 0 failed** |
+| Latency | per-minute median 3.6 to 4.5 s, 95th percentile 4.9 to 9.2 s, no upward trend |
+| Postgres connections | 7 to 8 throughout; Redis evictions 0 |
+| Memory (private committed bytes, after warm-up) | agent 273.9 to 273.3 MB (+0.12 MB per minute); backend 113.5 to 117.7 MB (**+0.86 MB per minute**); scripted model flat |
+
+**How to read it:** no sign of unbounded growth in 7 minutes, but 7 minutes cannot separate a small leak from allocator warm-up. The backend's drift works out to roughly 9 KB per request; whether it plateaus needs a run of hours, which was not done.
+Working-set (RSS) readings were **discarded**: Windows trims them when memory is short (the agent's RSS read about 30 MB while its private bytes were 274 MB), so the harness now records private bytes for trends.
+
+**Multi-replica scaling: no result.** Four interleaved runs (1, 2, 1, 2 backend-and-agent pairs, 100 concurrent users) were made while the host was out of memory: the independent Redis probe saw stalls of 1.3 to 2.0 s, 13% to 39% of requests failed, and CPU stayed low (the processes were waiting, not computing).
+Throughput was 2.2, 1.7, 2.2 and 1.9 researches per second for 1, 2, 1, 2 replicas (compare 4.6 to 7 per second on a calmer machine). These runs say the machine was unfit for the experiment, not anything about scaling. The harness supports `--replicas N`; repeat when the machine has free memory.
+
 ## 4. What was not measured
 
 * Real LLM latency, token counts and cost per research (the agent does not record token usage yet; see `docs/EVALUATION_PLAN.md`).
-* More than one backend or agent process: all figures are **one worker each**. The CPU data below says one backend core is the ceiling, so throughput should scale with processes, but this was not tested.
-* Memory growth over time (soak), very long conversations, large result payloads, slow clients.
+* More than one backend or agent process: all valid figures are **one worker each**. The CPU data says one core each is the ceiling, so throughput should scale with processes, but the attempt to test it was invalidated by the host (section 3b).
+* Memory growth beyond 7 minutes (hours-long soak), very long conversations, large result payloads, slow clients.
 * Real network latency, a database that is not on the same machine, TLS, a reverse proxy or load balancer in front.
 * PostgreSQL restart and Redis restart under load. Single failures were tested before in the failure suite (39 tests) and the multi-instance suite (17), not under this load.
 * The gate size (16) and pool (10 + 10) are reasoned from the local pool size, not tuned; the right values depend on the database's `max_connections` and the number of backend tasks.

@@ -115,9 +115,13 @@ class Sampler(threading.Thread):
                     # The venv's python.exe is a small launcher; the real interpreter is its child. Sum the whole tree.
                     tree = [p, *p.children(recursive=True)]
                     row[f"{n}_cpu"] = sum(self.cpu(x) for x in tree) / self.ncpu     # percent of the WHOLE machine
-                    row[f"{n}_rss_mb"] = sum(x.memory_info().rss for x in tree) / 1e6
+                    mem = [x.memory_info() for x in tree]
+                    row[f"{n}_rss_mb"] = sum(m.rss for m in mem) / 1e6
+                    # Windows trims working sets (RSS) when the machine is short of memory, which would fake a shrinking or noisy trend.
+                    # `private` (committed private bytes) is not trimmed; on other systems fall back to RSS.
+                    row[f"{n}_priv_mb"] = sum(getattr(m, "private", m.rss) for m in mem) / 1e6
                 except psutil.Error:
-                    row[f"{n}_cpu"] = row[f"{n}_rss_mb"] = None
+                    row[f"{n}_cpu"] = row[f"{n}_rss_mb"] = row[f"{n}_priv_mb"] = None
             try:
                 info = self.r.info()
                 row["redis_ops"] = info.get("instantaneous_ops_per_sec")
@@ -404,19 +408,19 @@ async def soak(users, conc: int, seconds: float, sampler: "Sampler"):
                         "total_s_p50": pct(oks, 50), "total_s_p95": pct(oks, 95),
                         "rss_mb": {k[:-7]: v["max"] for k, v in win.items() if k.endswith("_rss_mb")},
                         "pg_conns_max": win.get("pg_conns", {}).get("max")})
-    # memory trend: least-squares slope of RSS over time per process, ignoring the first 20 % (warm-up)
+    # memory trend: least-squares slope over time per process, ignoring the first 20 % (warm-up); for both RSS and private (committed) bytes
     trend = {}
-    names = sorted({k for r in sampler.rows for k in r if k.endswith("_rss_mb")})
-    for k in names:
-        pts = [(r["t"] - t_begin, r[k]) for r in sampler.rows if r.get(k) is not None and t_begin <= r["t"] <= t_end]
-        pts = pts[len(pts) // 5:]
-        if len(pts) > 10:
-            n = len(pts)
-            mx = sum(x for x, _ in pts) / n
-            my = sum(y for _, y in pts) / n
-            den = sum((x - mx) ** 2 for x, _ in pts) or 1.0
-            slope = sum((x - mx) * (y - my) for x, y in pts) / den
-            trend[k[:-7]] = {"start_mb": round(pts[0][1], 1), "end_mb": round(pts[-1][1], 1), "slope_mb_per_min": round(slope * 60, 2)}
+    for suffix, label in (("_rss_mb", "rss"), ("_priv_mb", "private")):
+        for k in sorted({k for r in sampler.rows for k in r if k.endswith(suffix)}):
+            pts = [(r["t"] - t_begin, r[k]) for r in sampler.rows if r.get(k) is not None and t_begin <= r["t"] <= t_end]
+            pts = pts[len(pts) // 5:]
+            if len(pts) > 10:
+                n = len(pts)
+                mx = sum(x for x, _ in pts) / n
+                my = sum(y for _, y in pts) / n
+                den = sum((x - mx) ** 2 for x, _ in pts) or 1.0
+                slope = sum((x - mx) * (y - my) for x, y in pts) / den
+                trend.setdefault(k[: -len(suffix)], {})[label] = {"start_mb": round(pts[0][1], 1), "end_mb": round(pts[-1][1], 1), "slope_mb_per_min": round(slope * 60, 2)}
     return {"seconds": round(t_end - t_begin), "concurrency": conc, "requests": len(done), "failed": sum(1 for _, ok, _ in done if not ok),
             "error_kinds": sorted(set(errors))[:5], "per_minute": minutes, "rss_trend_after_warmup": trend,
             "redis_evicted_delta": sampler.window(t_begin, t_end).get("redis_evicted_delta")}

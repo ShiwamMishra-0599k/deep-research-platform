@@ -68,6 +68,10 @@ Results from the scripted model prove that the software works. They say nothing 
 
 No users, traffic, revenue or performance figures are claimed: none exist.
 
+## Try it without any API keys (scripted demo)
+
+`backend/.venv/Scripts/python.exe scripts/demo.py` starts the real UI, backend, agent, PostgreSQL and Redis with a **scripted language model and a sealed fake internet** (needs Docker, the two virtualenvs and `npm install`; see the script header). It shows the product's behaviour, **not a real model's research quality**; the walkthrough is in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md). What is still missing for a reviewer, and who has to act, is in [`docs/PORTFOLIO_GAPS.md`](docs/PORTFOLIO_GAPS.md).
+
 ## Quick start (Docker)
 
 ```bash
