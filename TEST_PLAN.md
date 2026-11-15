@@ -87,6 +87,10 @@ No research query was run in compose (it would call real providers with no key).
 
 Re-run on the milestone-3 compose file (strong generated secrets, pinned project name `lumen`, Redis limits): backend healthy and reporting `rate_limit: redis`; the effective project volumes are `lumen_postgres_data`/`lumen_redis_data`; 24 bad logins → 20 pass, 4 get 429 with `Retry-After`; Redis db 1 holds 21 keys, all hashed (none contains `@` or an address) with TTLs, db 0 (agent cache) separate; `ALLOW_INSECURE_DEV_DB=0` and a 48-character database password in the container; agent and Redis publish nothing; a full `stop`/`start` of every service keeps the user, conversation and message and the user can log in and read them; the shipped image exits 1 with a weak `DATABASE_URL`.
 
+Re-run 2026-11-15 on the cookie-session stack (project `lumen-verify`, throwaway volumes, host ports remapped by an override file outside the repo because another stack holds 5433/8080; secrets generated per run, never stored): images built and healthy, `/health/ready` reports `rate_limit: redis`; registration in cookie mode sets `lumen_at` and `lumen_rt` HttpOnly and a script-readable `lumen_csrf`; `/me` works with cookies alone; logout without the CSRF token and logout from a foreign Origin both 403 and leave the session valid; refresh rotates; replaying the superseded refresh token after the 10 s grace returns 401 and revokes the session (`/me` then 401); a proper logout returns 204 and `/me` is 401; security headers present, `/docs` 404. Stack removed with `down -v` for that project only; the other stack's containers and volumes were not touched. Not exercised here: HTTPS (`COOKIE_SECURE=true` / `__Host-` names), a research query (no provider keys), the frontend container.
+
+Local CI replay, one stage at a time (low-memory machine; `python scripts/ci_local.py <stage>`), all on 2026-11-15 against HEAD d264823: lint 3/3, security 3/3, agent 5/5 (379 tests, lockfiles reproducible), backend 353 passed, frontend 4/4 (tsc, build, 253 tests with coverage gate, prod audit 0), docker 6/6. GitHub Actions run 43697467299 passed the same six jobs.
+
 ## 5. Requirements coverage (PRD §6)
 
 F1 auth ✔ (backend + browser) · F2 conversations ✔ · F3 streaming progress ✔ (browser) · F4 eight tools ✔ (mocked upstreams; live shapes spot-checked once) ·
@@ -95,7 +99,6 @@ F9 persistence ✔ (incl. disconnect) · F10 failure handling ✔ (real outages)
 
 ## 6. Gaps (not tested)
 
-- **The GitHub Actions workflow has never run on GitHub.**
 - **Rate-limit behaviour with real reverse proxies** (nginx/ALB/Cloudflare header formats, IPv6 prefixes at scale); only the resolver logic and simulated peers are tested.
 - **Redis Cluster / Sentinel / managed Redis** (single instance only); behaviour of the Lua scripts under replica failover.
 - **Rate-limit load behaviour** beyond an 80-thread burst; Redis memory under key-spraying attacks beyond the bounded-structure reasoning.
