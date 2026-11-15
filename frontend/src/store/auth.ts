@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, onSessionEnded } from "@/lib/api";
+import { api, onSessionEnded, refreshSession } from "@/lib/api";
 import type { User } from "@/types";
 import { useChat } from "@/store/chat";
 
@@ -18,6 +18,21 @@ interface AuthState {
 }
 
 const toUser = (d: { id: string; email: string; name: string }): User => ({ id: d.id, email: d.email, name: d.name });
+
+/**
+ * GET /auth/me, tolerating an expired ACCESS cookie. The access cookie lives 15 minutes, the refresh session up to
+ * 24 h idle: a 401 here usually means "refresh me", not "signed out". Without this, reopening the app after a coffee
+ * break would force a fresh login and the 24 h inactivity window would be meaningless. One refresh, one retry, no loop.
+ */
+async function fetchMe(): Promise<{ id: string; email: string; name: string }> {
+  try {
+    return (await api.get("/auth/me")).data;
+  } catch (e: any) {
+    if (e?.response?.status !== 401) throw e;
+    if ((await refreshSession()) !== "ok") throw e;
+    return (await api.get("/auth/me")).data;
+  }
+}
 
 /** Nothing about the previous person may survive in memory: the next one to sign in on this tab would see it. */
 function resetLocalSession(set: (p: Partial<AuthState>) => void) {
@@ -73,7 +88,7 @@ export const useAuth = create<AuthState>((set, get) => {
           }
         }
         // 2. Normal boot: the HttpOnly cookie is sent automatically; the server decides.
-        const { data } = await api.get("/auth/me");
+        const data = await fetchMe();
         set({ user: toUser(data), status: "authenticated" });
       } catch (e: any) {
         set({ user: null, status: "anonymous" });

@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation, Message } from "@/types";
 
 const http = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn() }));
+const refresh = vi.hoisted(() => vi.fn());
 const ended = vi.hoisted(() => ({ fns: [] as (() => void)[] }));
 vi.mock("@/lib/api", () => ({
   api: http,
   apiError: () => "",
   onSessionEnded: (fn: () => void) => { ended.fns.push(fn); return () => {}; },
+  refreshSession: refresh,
 }));
 
 import { useAuth } from "@/store/auth";
@@ -23,6 +25,8 @@ beforeEach(() => {
   http.post.mockReset();
   http.get.mockReset();
   http.post.mockResolvedValue({ data: {} });
+  refresh.mockReset();
+  refresh.mockResolvedValue("ended"); // default: no refreshable session
   reset();
   useChat.setState({ conversations: [], activeId: null, messages: {}, loading: false });
 });
@@ -180,6 +184,51 @@ describe("boot: hydrate()", () => {
     await useAuth.getState().hydrate();
     expect(useAuth.getState().user).toBeNull();
     expect(localStorage.getItem("auth_user")).toBeNull(); // and it is purged
+  });
+});
+
+describe("boot: an expired ACCESS cookie with a live refresh session", () => {
+  const unauthorized = () => Object.assign(new Error("401"), { response: { status: 401 } });
+
+  it("REGRESSION (24 h inactivity window): /auth/me 401 -> one refresh -> retry -> authenticated, not signed out", async () => {
+    http.get.mockRejectedValueOnce(unauthorized()).mockResolvedValueOnce({ data: alice });
+    refresh.mockResolvedValue("ok");
+    await useAuth.getState().hydrate();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(http.get).toHaveBeenCalledTimes(2);
+    expect(useAuth.getState().status).toBe("authenticated");
+    expect(useAuth.getState().user).toEqual(alice);
+  });
+
+  it("refresh says the session is over: anonymous, and /auth/me is not retried", async () => {
+    http.get.mockRejectedValue(unauthorized());
+    refresh.mockResolvedValue("ended");
+    await useAuth.getState().hydrate();
+    expect(http.get).toHaveBeenCalledTimes(1);
+    expect(useAuth.getState().status).toBe("anonymous");
+  });
+
+  it("refresh fails transiently (network/5xx/429): anonymous for now, never a login redirect from here", async () => {
+    http.get.mockRejectedValue(unauthorized());
+    refresh.mockResolvedValue("failed");
+    await useAuth.getState().hydrate();
+    expect(useAuth.getState().status).toBe("anonymous");
+  });
+
+  it("never loops: refresh ok but the retry is still 401 -> anonymous after exactly one refresh and two /me calls", async () => {
+    http.get.mockRejectedValue(unauthorized());
+    refresh.mockResolvedValue("ok");
+    await useAuth.getState().hydrate();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(http.get).toHaveBeenCalledTimes(2);
+    expect(useAuth.getState().status).toBe("anonymous");
+  });
+
+  it("a non-401 failure (500) does not trigger a refresh at all", async () => {
+    http.get.mockRejectedValue(Object.assign(new Error("500"), { response: { status: 500 } }));
+    await useAuth.getState().hydrate();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(useAuth.getState().status).toBe("anonymous");
   });
 });
 
