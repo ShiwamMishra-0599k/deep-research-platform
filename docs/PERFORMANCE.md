@@ -85,11 +85,11 @@ so the floor is about 3.3 s. `CPU` is the share of the **whole 4-core machine** 
 * The gate size (16) and pool (10 + 10) are reasoned from the local pool size, not tuned; the right values depend on the database's `max_connections` and the number of backend tasks.
 * Cost: nothing here prices any infrastructure. See `docs/DEPLOYMENT_PROPOSAL.md` (an estimate, not a measurement).
 
-## 5. ARM64 agent image
+## 5. ARM64
 
-The **backend** image builds for `linux/arm64` (emulated, about 8 minutes) and the native dependencies load as `aarch64`; it was not run against a database under emulation.
-
-The **agent** image (LangGraph, PyMuPDF and other heavier dependencies) was **not verified on ARM**: the emulated build was still running after more than 20 minutes when I stopped it because
-the machine had under 100 MB of free memory. This is **unverified, not failed.** It needs either a machine with more memory, a native arm64 builder (for example a CI runner or an AWS Graviton build host), or GitHub Actions with
-an arm64 runner. Until it is verified, the deployment proposal's ARM Fargate option (USD 102.60 per month) rests on an assumption, and the x86 images are what has actually been built and run in this project, so x86 (USD 120.75 per month) is the option backed by evidence.
-
+* **Backend image:** builds for `linux/arm64` (emulated, about 8 minutes) and its native dependencies (psycopg binary, pydantic-core, bcrypt) load as `aarch64`.
+* **Agent image:** builds for `linux/arm64` (emulated, about 20 minutes; the installed wheels resolved without compiling anything, 370 MB). Inside it, under CPU emulation, `platform.machine()` is `aarch64` and these loaded: `pydantic_core` (8 s), **PyMuPDF** (60 s), `httpx`,
+  `redis`, `prometheus_client` and `numpy`. **`pandas` and everything imported after it (LangChain, LangGraph, Deep Agents, yfinance, the application) did not finish importing in more than 9 minutes under emulation, so they are unverified.** This is a limit of emulating a CPU on a
+  4-core laptop, not evidence of a defect, and not evidence of success.
+* **How it will be verified for free:** the CI workflow now has a `docker-arm64` job that builds both images **natively** on a GitHub-hosted arm64 runner (free for public repositories) and loads every native dependency and the agent's application module. It is marked non-blocking until its first run has proved the runner
+  is available; check the Actions tab for its result. Until it passes, treat the ARM Fargate option in the deployment design as unproven (and note there is no deployment).

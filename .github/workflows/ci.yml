@@ -201,3 +201,24 @@ jobs:
         run: pip-audit -r backend/requirements.txt --no-deps --disable-pip
       - name: pip-audit research-agent (the exact locked set that ships in the image)
         run: pip-audit -r research-agent/requirements.lock --no-deps --disable-pip
+
+  docker-arm64:
+    name: ARM64 (native image build and import check)
+    # GitHub-hosted arm64 runners are free for public repositories. `continue-on-error` keeps a runner-availability problem from
+    # failing the main gates until this job has proven itself; the job's own result still shows in the run.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build both images natively on arm64 (no emulation)
+        run: |
+          uname -m
+          docker build -q -t lumen-backend:arm64 backend
+          docker build -q -t lumen-agent:arm64 research-agent
+      - name: Load every native dependency inside the images
+        run: |
+          docker run --rm --entrypoint python lumen-backend:arm64 -c "import platform; assert platform.machine() == 'aarch64', platform.machine(); import psycopg, pydantic_core, bcrypt, jwt, sqlalchemy, uvicorn, fastapi, redis, httpx; print('backend dependencies load on', platform.machine())"
+          docker run --rm -e AGENT_API_KEY=ci-only-placeholder --entrypoint python lumen-agent:arm64 -c "import platform; assert platform.machine() == 'aarch64', platform.machine(); import fitz, numpy, pandas, langgraph, research_agent.server; print('agent loads on', platform.machine())"

@@ -1,5 +1,8 @@
 # Lumen — Deep Research Platform
 
+[![CI](https://github.com/ShiwamMishra-0599k/deep-research-platform/actions/workflows/ci.yml/badge.svg?branch=release-readiness%2Fci-validation)](https://github.com/ShiwamMishra-0599k/deep-research-platform/actions/workflows/ci.yml?query=branch%3Arelease-readiness%2Fci-validation)
+&nbsp;Portfolio project, built and tested locally on a zero budget. **Not deployed, no users, no real-model quality score yet**: see [what is and is not proven](#verification-status-what-is-and-is-not-proven).
+
 A full-stack research assistant. Sign in, ask a question, watch the agent work, and get a cited answer made of structured
 blocks (markdown, tables, maps, metric cards). React frontend, FastAPI backend, PostgreSQL, and a separate Python research agent
 (Deep Agents / LangGraph) with eight tools, streaming everything over Server-Sent Events.
@@ -12,6 +15,8 @@ blocks (markdown, tables, maps, metric cards). React frontend, FastAPI backend, 
                                        ▼                                                 ▼
                                  PostgreSQL 16                                    Redis 7 (tool cache)
 ```
+
+**Start here:** [`docs/CASE_STUDY.md`](docs/CASE_STUDY.md) (decisions, and the defects that load tests found and how they were fixed) · [`docs/DIAGRAMS.md`](docs/DIAGRAMS.md) (architecture diagrams) · [`docs/API.md`](docs/API.md) (API reference, with [`openapi.json`](docs/openapi.json)) · [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) (measured, with limits) · [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) · [`docs/ZERO_BUDGET_PLAN.md`](docs/ZERO_BUDGET_PLAN.md) (how quality is evaluated for free, and what has not been run)
 
 Documentation: [`PRD.md`](PRD.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`research-agent/ARCHITECTURE.md`](research-agent/ARCHITECTURE.md) ·
 [`DESIGN.md`](DESIGN.md) · [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) · [`TEST_PLAN.md`](TEST_PLAN.md) · [`TASKS.md`](TASKS.md) · [`AGENTS.md`](AGENTS.md)
@@ -35,7 +40,7 @@ Operations and plans: [`docs/DB_CREDENTIALS.md`](docs/DB_CREDENTIALS.md) · [`do
 | Backend | FastAPI, SQLAlchemy 2, Alembic, PyJWT, bcrypt, Redis (rate limits) |
 | Agent | FastAPI, Deep Agents / LangGraph, OpenRouter or OpenAI, Redis (tool cache) |
 | Data | PostgreSQL 16, Redis 7 |
-| Delivery | Docker Compose, GitHub Actions (written and validated locally, see status below) |
+| Delivery | Docker Compose, GitHub Actions (green on the release branch: lint, security scans, backend, agent, frontend, Docker) |
 
 ## Screenshots
 
@@ -46,15 +51,19 @@ These come from the automated integration harness, which uses a **fake LLM and f
 
 ## Verification status (what is and is not proven)
 
-| Claim | Evidence |
-|---|---|
-| Backend behaviour, auth, sessions, CSRF, rate limits | 379 tests against real PostgreSQL and Redis (local) |
-| Frontend behaviour | 253 tests, 99.7% statement coverage, enforced thresholds (local) |
-| Full stack in a real browser | 61-check scenario with a fake LLM and fake web (local, Edge only) |
-| Outages, multiple replicas, credential rotation | 39, 17 and 19 checks (local) |
-| GitHub Actions | **Not yet executed on GitHub.** Validated with actionlint, schema checks and clean Linux containers |
-| Real LLM and search quality | **Not measured yet** (planned evaluation milestone) |
-| Production deployment, TLS, backups, cost, load | **Not done.** Plans and templates only |
+| Claim | Evidence | Kind |
+|---|---|---|
+| Backend behaviour, auth, sessions, CSRF, rate limits, shutdown | 379 tests against real PostgreSQL and Redis | local, scripted model |
+| Research agent | 391 tests, no real network | local, scripted model |
+| Frontend behaviour | 253 tests, 99.7% statement coverage, enforced thresholds | local |
+| Full stack in a real browser | 61-check scenario with a fake LLM and fake web (Edge only) | local, scripted model |
+| Outages, multiple replicas, credential rotation | 39, 17 and 19 checks | local |
+| CI | GitHub Actions passes on the release branch (lint, security scans, backend, agent, frontend, Docker); the workflow is not on `main` yet | GitHub |
+| Load, graceful shutdown, failure recovery | Measured with a fixed-latency stand-in for the model on one 4-core laptop: defects found and fixed, limits recorded in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) | local, scripted model |
+| **Real LLM and search quality** | **Not measured.** A 29-question benchmark, grading code and plan exist; no score does ([`docs/ZERO_BUDGET_PLAN.md`](docs/ZERO_BUDGET_PLAN.md)) | not run |
+| Production deployment, TLS, backups, cost | **Not done and not planned** (no budget). A design document only | none |
+
+Results from the scripted model prove that the software works. They say nothing about how good any model's answers are.
 
 No users, traffic, revenue or performance figures are claimed: none exist.
 
