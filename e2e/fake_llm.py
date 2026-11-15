@@ -167,6 +167,12 @@ class Handler(BaseHTTPRequestHandler):
                 for i in range(0, len(text), 40):
                     send(_chunk({"content": text[i:i + 40]}, cid=cid))
                 send(_chunk({}, "stop", cid))
+            if (body.get("stream_options") or {}).get("include_usage"):
+                # SYNTHETIC usage (about 4 characters per token): this server is a test double, so these numbers say nothing about any real model.
+                p_tok = sum(len(_text(m)) for m in messages) // 4 + 1
+                c_tok = (len(text) + sum(len(tc["function"]["arguments"]) for tc in tool_calls)) // 4 + 1
+                send({"id": cid, "object": "chat.completion.chunk", "created": int(time.time()), "model": "fake-model", "choices": [],
+                      "usage": {"prompt_tokens": p_tok, "completion_tokens": c_tok, "total_tokens": p_tok + c_tok}})
             send("[DONE]")
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()

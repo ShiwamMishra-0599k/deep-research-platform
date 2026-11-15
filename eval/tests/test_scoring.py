@@ -112,3 +112,15 @@ def test_sse_parser_handles_multiline_data_crlf_free_and_bad_json():
     lines = ["event: checkpoint", 'data: {"a": 1}', "", "event: blocks", 'data: {"x":', 'data: 2}', "", "event: weird", "data: not json", "", ""]
     ev = parse_sse(lines)
     assert ev[0] == ("checkpoint", {"a": 1}) and ev[1] == ("blocks", {"x": 2}) and ev[2] == ("weird", "not json")
+
+
+def test_usage_is_taken_from_the_done_event_and_missing_counts_are_not_zeroes():
+    with_usage = trace(("checkpoint", {}), ("blocks", {"status": "completed", "data": {"blocks": [], "sources": []}}),
+                       ("done", {"status": "completed", "usage": {"token_source": "provider", "input_tokens": 100, "output_tokens": 10, "llm_calls": 2, "tool_calls": 1}}))
+    without = trace(("checkpoint", {}), ("blocks", {"status": "completed", "data": {"blocks": [], "sources": []}}), ("done", {"status": "completed"}))
+    rs = [S.score_case({"id": "a"}, with_usage), S.score_case({"id": "b"}, without)]
+    assert rs[0]["usage"]["input_tokens"] == 100 and rs[1]["usage"] is None
+    u = S.summarise(rs)["usage"]
+    assert u["cases_with_provider_tokens"] == 1 and u["cases_without_token_counts"] == 1
+    assert u["input_tokens_total"] == 100 and u["llm_calls_total"] == 2
+    assert S.summarise([rs[1]])["usage"]["input_tokens_total"] is None      # nothing reported: null, not 0

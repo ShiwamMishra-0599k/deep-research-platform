@@ -56,7 +56,7 @@ With 29 cases every proportion has a wide 95% interval (roughly +/- 13 to 17 poi
 | # | Milestone | Cost | Can finish entirely locally? |
 |---|---|---|---|
 | 1 | Re-plan evaluation to zero budget (this document), expand benchmark to 29 | 0 | Yes |
-| 2 | Observability: tokens, LLM calls, search calls and an estimated cost (price defaults to 0) per research, in logs, `/metrics` and the final event | 0 | Yes (against the scripted LLM; real counts appear when a real model runs) |
+| 2 | Observability: tokens, LLM calls, search calls and an estimated cost (price defaults to 0) per research, in logs, `/metrics` and the final event | 0 | **Done** (`docs/OBSERVABILITY.md`, 12 new agent tests; hermetic token counts are synthetic) |
 | 3 | Legacy Bearer usage counter (precondition for the cookie-only switch) | 0 | Yes |
 | 4 | Graceful shutdown with a bounded drain and a clean "interrupted" outcome; agent SIGTERM test | 0 | Yes (Linux containers on this machine) |
 | 5 | Investigate load-test `ReadError`s and Redis timeouts; fix or document | 0 | Yes |

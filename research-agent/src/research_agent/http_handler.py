@@ -7,6 +7,7 @@ import datetime
 import json
 import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from typing import Any, Literal
 
@@ -18,6 +19,7 @@ from research_agent.blocks.block_formatter import ToolResult, format_blocks
 from research_agent.blocks.checkpoint_formatter import format_tool_end, format_tool_start
 from research_agent.blocks.follow_up_generator import generate_follow_ups
 from research_agent.config import get_settings
+from research_agent.infrastructure.usage import Usage, UsageCallback, observe_research
 
 logger = logging.getLogger(__name__)
 _s = get_settings()
@@ -95,10 +97,24 @@ async def stream_research(req: ResearchRequest) -> AsyncIterator[str]:
     """
     yield _sse("checkpoint", {"status": "in_progress", "content": "Researching your query..."})
 
+    usage = Usage()
+    started = time.monotonic()
+
+    def finish(outcome: str) -> dict:
+        """Record metrics and one log line (counts only, no content) and return the report sent in the final event."""
+        cfg = get_settings()
+        observe_research(outcome, time.monotonic() - started, usage, cfg.LLM_PRICE_INPUT_PER_M, cfg.LLM_PRICE_OUTPUT_PER_M)
+        report = usage.snapshot(cfg.LLM_PRICE_INPUT_PER_M, cfg.LLM_PRICE_OUTPUT_PER_M)
+        logger.info("research outcome=%s seconds=%.1f llm_calls=%d tool_calls=%d tokens_in=%s tokens_out=%s token_source=%s",
+                    outcome, time.monotonic() - started, report["llm_calls"], report["tool_calls"],
+                    report["input_tokens"], report["output_tokens"], report["token_source"])
+        return report
+
     try:
         agent = await get_agent()
     except Exception:
         logger.exception("Failed to initialize agent")
+        finish("unavailable")
         yield _sse("error", {"status": "failed", "content": UNAVAILABLE_ERROR})
         return
 
@@ -106,7 +122,7 @@ async def stream_research(req: ResearchRequest) -> AsyncIterator[str]:
     final_text = ""
     tool_results: list[ToolResult] = []
     events = agent.astream_events(
-        {"messages": messages}, config={"recursion_limit": 50}, version="v2"
+        {"messages": messages}, config={"recursion_limit": 50, "callbacks": [UsageCallback(usage)]}, version="v2"
     )
 
     try:
@@ -116,6 +132,7 @@ async def stream_research(req: ResearchRequest) -> AsyncIterator[str]:
 
                 if etype == "on_tool_start":
                     tool_name = event.get("name", "")
+                    usage.record_tool(tool_name)
                     tool_input = _as_input_dict(event.get("data", {}).get("input", {}))
                     msg_text = format_tool_start(tool_name, tool_input)
                     if msg_text:
@@ -139,13 +156,16 @@ async def stream_research(req: ResearchRequest) -> AsyncIterator[str]:
                         final_text = candidate
     except TimeoutError:
         logger.warning("Research timed out after %ss", get_settings().REQUEST_TIMEOUT_SECONDS)
+        finish("timeout")
         yield _sse("error", {"status": "failed", "content": TIMEOUT_ERROR})
         return
     except asyncio.CancelledError:
         logger.info("Research cancelled (client disconnected)")
+        finish("cancelled")
         raise
     except Exception:
         logger.exception("Agent stream failed")
+        finish("error")
         yield _sse("error", {"status": "failed", "content": GENERIC_ERROR})
         return
     finally:
@@ -162,7 +182,7 @@ async def stream_research(req: ResearchRequest) -> AsyncIterator[str]:
     if stripped.startswith(_CLARIFICATION_PREFIX):
         question = stripped[len(_CLARIFICATION_PREFIX):].strip()
         yield _sse("clarification", {"status": "completed", "content": question})
-        yield _sse("done", {"status": "completed"})
+        yield _sse("done", {"status": "completed", "usage": finish("clarification")})
         return
 
     try:
@@ -179,7 +199,8 @@ async def stream_research(req: ResearchRequest) -> AsyncIterator[str]:
         yield _sse("blocks", {"status": "completed", "data": research_response.model_dump()})
     except Exception:
         logger.exception("Block formatting failed")
+        finish("error")
         yield _sse("error", {"status": "failed", "content": GENERIC_ERROR})
         return
 
-    yield _sse("done", {"status": "completed"})
+    yield _sse("done", {"status": "completed", "usage": finish("completed")})

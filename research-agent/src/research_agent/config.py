@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = "anthropic/claude-sonnet-4-6"
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     LLM_TEMPERATURE: float = 0.3
+    # Estimated cost accounting, USD per 1M tokens. 0 = free (a local model, the zero-budget setup). Set only if you pay a provider.
+    LLM_PRICE_INPUT_PER_M: float = 0.0
+    LLM_PRICE_OUTPUT_PER_M: float = 0.0
 
     # LLM — OpenAI fallback
     OPENAI_API_KEY: str = ""

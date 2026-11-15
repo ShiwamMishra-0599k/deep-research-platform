@@ -104,6 +104,14 @@ def no_error(trace: dict) -> tuple[bool, str]:
     return ("error" not in terminal_events(trace)), ("agent returned an error event" if "error" in terminal_events(trace) else "")
 
 
+def usage_of(trace: dict) -> dict | None:
+    """The agent's own usage report from the final `done` event (provider-reported tokens, or token_source 'unavailable')."""
+    for name, data in trace["events"]:
+        if name == "done" and isinstance(data, dict) and isinstance(data.get("usage"), dict):
+            return data["usage"]
+    return None
+
+
 def score_case(case: dict, trace: dict) -> dict:
     """Run every applicable scorer. `manual_review` cases are reported but never auto-passed."""
     checks: dict[str, tuple[bool, str]] = {"protocol": protocol_ok(trace)}
@@ -126,6 +134,7 @@ def score_case(case: dict, trace: dict) -> dict:
         "checks": {k: {"ok": ok, "detail": d} for k, (ok, d) in checks.items()},
         "tools": tools_called(trace), "blocks": block_types(trace), "n_sources": len(sources(trace)),
         "latency_s": round(trace["latency_s"], 2), "first_checkpoint_s": trace.get("first_checkpoint_s"),
+        "usage": usage_of(trace),
         "answer_text": answer_text(trace), "source_urls": sources(trace),   # for graders; results/ is git-ignored
     }
 
@@ -136,6 +145,19 @@ def percentile(values: list[float], p: float) -> float | None:
     s = sorted(values)
     k = max(0, min(len(s) - 1, math.ceil(p / 100 * len(s)) - 1))
     return round(s[k], 2)
+
+
+def summarise_usage(results: list[dict]) -> dict:
+    """Totals only over cases whose provider reported tokens; says how many could not be counted instead of treating them as zero."""
+    reported = [r["usage"] for r in results if r.get("usage") and r["usage"].get("token_source") == "provider"]
+    return {
+        "cases_with_provider_tokens": len(reported),
+        "cases_without_token_counts": len(results) - len(reported),
+        "input_tokens_total": sum(u["input_tokens"] for u in reported) if reported else None,
+        "output_tokens_total": sum(u["output_tokens"] for u in reported) if reported else None,
+        "llm_calls_total": sum((r.get("usage") or {}).get("llm_calls", 0) for r in results),
+        "tool_calls_total": sum((r.get("usage") or {}).get("tool_calls", 0) for r in results),
+    }
 
 
 def summarise(results: list[dict]) -> dict:
@@ -152,5 +174,6 @@ def summarise(results: list[dict]) -> dict:
         "per_check_pass_rate": {k: round(sum(v) / len(v), 3) for k, v in sorted(by_check.items())},
         "latency_s": {"p50": percentile(lat, 50), "p95": percentile(lat, 95), "max": max(lat) if lat else None},
         "manual_review_pending": [r["id"] for r in results if r.get("manual_review")],
+        "usage": summarise_usage(results),
     }
 

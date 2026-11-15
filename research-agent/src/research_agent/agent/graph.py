@@ -122,6 +122,7 @@ def _build_model() -> ChatOpenAI:
             base_url=settings.OPENROUTER_BASE_URL,
             temperature=settings.LLM_TEMPERATURE,
             max_tokens=4096,
+            stream_usage=True,
             extra_body={"cache_control": {"type": "ephemeral"}},
             model_kwargs={"parallel_tool_calls": True},
         )
@@ -133,6 +134,7 @@ def _build_model() -> ChatOpenAI:
             api_key=settings.OPENAI_API_KEY,
             temperature=settings.LLM_TEMPERATURE,
             max_tokens=4096,
+            stream_usage=True,
             model_kwargs={"parallel_tool_calls": True},
         )
 
