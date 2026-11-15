@@ -9,7 +9,7 @@ Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 | 1 | Release readiness: rate limiting, DB credentials, CI, frontend tests, cookie sessions | ✅ built and tested locally |
 | 2 | **A. Publish to GitHub** (`release-readiness/ci-validation`), Actions green, repo review | ✅ pushed (HEAD 7e5a9ff + this note); GitHub Actions run 43697467299 passed all 6 jobs (ruff; security scans; frontend 253 tests; agent 379 tests; backend 353 tests; docker). Branch push trigger added to `ci.yml`. Not merged to `main`: requires explicit authorization. INTERVIEW_PREP.md and AI_LEARNING_ROADMAP.md (personal, not about Lumen) removed on this branch; still on `main` until merged |
 | 3 | AI research quality and evaluation | 🟡 **prepared, not executed.** Built: 19-case answer-quality set (`eval/quality_set.json`), grading and aggregation with confidence intervals (`eval/quality_grading.py`), budget model (`eval/cost_model.py`), provider comparison, methodology and proposed cap of INR 3,500 (`docs/EVALUATION_PLAN.md`). **No real-provider result exists.** Needs from you: approval of the cap, your own provider accounts/keys (pre-paid, per-key limit), and a human spot-check of the reference facts. Still to build: token/cost logging in the agent |
-| 4 | Performance and cost optimization (measured, honest benchmarks) | ⬜ |
+| 4 | Performance and cost optimization | 🟡 **local measurements done; no cost or real-provider figures.** `perf/load_test.py` (concurrency, SSE, CPU/memory, Postgres, Redis, agent-kill recovery) and `perf/sigterm_test.py` (real image, Linux container). Found and fixed a connection-pool deadlock that failed 32 of 50 and 80 of 100 concurrent researches; all 150 succeed after. Graceful shutdown verified for the backend image; losing in-flight answers when draining outlasts the stop timeout is documented. Backend arm64 image verified; **agent arm64 not verified**. See `docs/PERFORMANCE.md`. Still open: multi-worker scaling, soak, token/cost instrumentation, Redis timeout under load, agent SIGTERM |
 | 5 | **B. Production deployment**: **no AWS resource, charge or public deployment without explicit approval of architecture and cost** | 🟡 proposal and reproducible cost model written (`docs/DEPLOYMENT_PROPOSAL.md`, `deploy/aws/cost_estimate.py`): recommended option about 102.60 USD (9,670 INR) per month plus provider usage. **Awaiting your approval and AWS access**; Terraform and deploy scripts are the next prepared (not applied) step |
 | 6 | **C. Portfolio launch**: case study, diagrams, real screenshots, demo script, benchmarks | ⬜ (after deployment validation) |
 
@@ -36,12 +36,12 @@ Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 ## Milestone: CI validation, frontend tests, cookie sessions
 
 - ✅ Frontend test stack (Vitest, jsdom, Testing Library): 253 tests, coverage 99.7 / 94.73 / 100 / 99.7, thresholds 70/60/70/70 enforced in CI (Node >= 22)
-- ✅ HttpOnly-cookie sessions, stages 1-3 (`AUTH_MODE=dual`): 15 min access, rotating refresh (7 days max, 24 h idle), reuse detection, server-side revocation, CSRF token + Origin check, same-origin topology. 361 backend tests; browser e2e 61/61
+- ✅ HttpOnly-cookie sessions, stages 1-3 (`AUTH_MODE=dual`): 15 min access, rotating refresh (7 days max, 24 h idle), reuse detection, server-side revocation, CSRF token + Origin check, same-origin topology. 364 backend tests; browser e2e 61/61
 - ✅ `python-jose` replaced by PyJWT 2.15.1; react-router 7.18.5; `pip-audit` (backend) has no ignores; `npm audit --omit=dev` = 0
 - ✅ Production configuration fails closed (`ENVIRONMENT=production`): Redis required and `RATE_LIMIT_FAIL_MODE=closed`, HTTPS CORS, Secure cookies, HSTS, strong secrets
 - ✅ AWS Secrets Manager + Redis isolation **plan and example templates only** (`docs/AWS_SECRETS_PLAN.md`, `deploy/`); no AWS resource exists
 - ✅ CI: executed on GitHub Actions, run 43697467299 green (all 6 jobs) on 2026-11-15
-- ✅ Suites last run individually on 2026-11-15: backend 361, frontend 253, agent 379, e2e 61 (earlier run), failure 39, multi-instance 17, rotation 19 (earlier runs); staged `scripts/ci_local.py` replay green; GitHub Actions green (run 43697467299 and later)
+- ✅ Suites last run individually on 2026-11-15: backend 364, frontend 253, agent 379, e2e 61 (earlier run), failure 39, multi-instance 17, rotation 19 (earlier runs); staged `scripts/ci_local.py` replay green; GitHub Actions green (run 43697467299 and later)
 
 ## Waiting on you (decisions, in order of leverage)
 

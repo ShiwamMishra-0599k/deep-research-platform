@@ -282,7 +282,10 @@ async def fault_agent_kill(users, agent_cmd_env, sampler):
 
 
 def git_sha():
-    return subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=ROOT).stdout.strip()
+    sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=ROOT).stdout.strip()
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", "backend/app", "research-agent/src", "e2e", "perf"],
+                           capture_output=True, text=True, cwd=ROOT).stdout.strip()
+    return sha + ("+uncommitted-changes" if dirty else "")
 
 
 async def amain(a):

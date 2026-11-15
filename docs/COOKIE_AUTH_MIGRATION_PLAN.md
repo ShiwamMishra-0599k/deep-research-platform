@@ -8,7 +8,7 @@
 
 | Stage | Status |
 |---|---|
-| 1-2 Backend (migration 0003, cookies, CSRF, Origin check, refresh/logout/logout-all/upgrade, dual mode) | **Done** - 361 backend tests (sessions, CSRF, config, auth, cleanup) |
+| 1-2 Backend (migration 0003, cookies, CSRF, Origin check, refresh/logout/logout-all/upgrade, dual mode) | **Done** - 364 backend tests (sessions, CSRF, config, auth, cleanup) |
 | 3 Frontend cookie flow + e2e | **Done** - 253 frontend tests (99.7 % statements); browser e2e 61/61 including real cookie-jar flags, cross-site CSRF/login-CSRF attacker page, revocation, replay of a copied cookie, expiry + silent refresh, legacy-session upgrade |
 | 4 Cookie-only (`AUTH_MODE=cookie`, drop Bearer and body token) | **Not done** - deliberately after the migration window; legacy Bearer tokens cannot be revoked before their 24 h expiry |
 | 5 Hardening | **Partly done:** expired-session cleanup is implemented and tested (`app/cleanup.py`, section 12). **Not done:** CSP/HSTS at the hosting layer, "active sessions" UI, security-event alerting |
