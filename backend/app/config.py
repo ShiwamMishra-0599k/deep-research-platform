@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     # Reverse proxies whose X-Forwarded-For header may be believed (comma-separated CIDRs). Empty = trust none.
     trusted_proxy_cidrs: str = ""
 
+    # Bearer-usage counter (app/legacy_usage.py): how often in-memory increments are flushed to Redis.
+    legacy_bearer_flush_seconds: float = 5.0
+
     # How long a request may wait for a free database slot before it gets 503 + Retry-After (see db.py).
     db_gate_wait_seconds: float = 10.0
 

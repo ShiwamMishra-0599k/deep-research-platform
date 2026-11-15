@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import SessionLocal, db_gate
+from .legacy_usage import record_bearer_use
 from .models import AuthSession, User
 from .ratelimit import SlidingWindowLimiter
 from .security import decode_token
@@ -64,6 +65,7 @@ def authenticate(request: Request, db: Session) -> AuthContext:
         user = db.get(User, uuid.UUID(claims["sub"]))
         if not user:
             raise _unauthorized()
+        record_bearer_use(session is not None)   # counted only after the token was fully accepted
         return AuthContext(user, "bearer", session)
 
     cookie = request.cookies.get(names["access"]) if mode in ("dual", "cookie") else None

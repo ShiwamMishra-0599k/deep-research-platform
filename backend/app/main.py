@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SATimeoutError
 
+from . import shutdown
 from .cleanup import purge_loop
 from .config import settings
 from .db import DbBusy, engine
@@ -28,6 +29,7 @@ async def lifespan(_app: FastAPI):
         log.info("rate limiting: %s", "Redis (shared across instances)" if backend.warm() else "Redis unreachable at start; using the fallback")
     else:
         log.warning("rate limiting: REDIS_URL is not set; limits are per process only")
+    shutdown.install_signal_hook()   # learn about SIGTERM the moment it arrives (chained onto uvicorn's handler)
     purge = None
     if settings.auth_mode != "bearer" and settings.session_purge_interval_seconds > 0:
         purge = asyncio.create_task(purge_loop(settings.session_purge_interval_seconds))
@@ -36,6 +38,11 @@ async def lifespan(_app: FastAPI):
     finally:
         if purge:
             purge.cancel()
+        if not await shutdown.wait_for_streams(8.0):
+            log.warning("shutdown: %d research stream(s) still unwinding after 8 s", shutdown.streams_in_flight())
+        n = shutdown.stop_worker_threads()
+        if shutdown.is_shutting_down():
+            log.info("shutdown: asked %d worker thread(s) to exit", n)
 
 
 # No interactive docs/OpenAPI in the running service: it would publish the whole API surface.

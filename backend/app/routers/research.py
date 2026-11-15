@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
+from .. import shutdown
 from ..config import settings
 from ..db import SessionLocal, db_call
 from ..deps import get_current_user
@@ -198,6 +199,11 @@ async def query_conversation(
     request: Request,
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
+    if shutdown.is_shutting_down():
+        # Draining for a restart: do not start work that will be cut off. A keep-alive connection can still reach us.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "The service is restarting. Please retry in a few seconds.", headers={"Retry-After": "5"}
+        )
     user_id = user.id
     key = str(user_id)
 
@@ -229,6 +235,7 @@ async def query_conversation(
         error_text: str | None = None
         agen = stream_research(query_text, turn.history)
         cancelled = False
+        shutdown.stream_started()
         try:
             yield _sse(
                 "user_message",
@@ -305,6 +312,14 @@ async def query_conversation(
                 await asyncio.shield(agen.aclose())  # cancel the upstream agent request promptly
             except BaseException:  # noqa: BLE001 - cleanup must never mask the original exit
                 pass
+            if cancelled and not res.got_terminal and shutdown.is_shutting_down():
+                # Cancelled because the service is stopping (not because the user left): leave a note instead of silence.
+                try:
+                    await asyncio.shield(
+                        db_call(_persist_assistant, turn.conv_id, res, shutdown.INTERRUPTED_TEXT, wait=PERSIST_GATE_WAIT)
+                    )
+                except BaseException:  # noqa: BLE001
+                    log.warning("could not record the interruption")
             if cancelled and res.got_terminal and not res.persisted:
                 # The client left after the answer was complete: keep it for their history.
                 try:
@@ -313,6 +328,7 @@ async def query_conversation(
                     )
                 except BaseException:  # noqa: BLE001
                     log.warning("could not persist completed answer after disconnect")
+            shutdown.stream_finished()   # last: the lifespan shutdown waits for this before stopping worker threads
 
     return StreamingResponse(
         generator(),

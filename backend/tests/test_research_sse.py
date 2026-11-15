@@ -433,3 +433,97 @@ def test_a_research_request_never_holds_two_pool_connections_and_none_while_stre
     assert ask(client, alice, conv).status_code == 200
     assert seen["at_start_turn"] == 0, "authentication must release its connection before the handler needs another"
     assert seen["at_agent_call"] == 0, "no connection may be held while the (long) agent stream runs"
+
+
+# ── shutdown (app/shutdown.py) ───────────────────────────────────────────────
+
+@pytest.fixture()
+def stopping():
+    from app import shutdown
+
+    shutdown.begin()
+    yield shutdown
+    shutdown.reset()
+
+
+async def test_stream_cancelled_by_shutdown_leaves_an_interrupted_note(client, alice, conv, install_agent, engine_rows, stopping):
+    from app.main import app
+
+    install_agent([ev("checkpoint", {"status": "in_progress", "content": "working"}), 30])
+    # The stream is cancelled while the service is stopping. (A new request would be refused, so flip the flag after the stream started.)
+    stopping.reset()
+    events = await _drive(app, alice["token"], conv, {"query": "hello"}, lambda evs: (stopping.begin() or True) and "checkpoint" in names(evs))
+    await asyncio.sleep(0.5)
+    assert "checkpoint" in names(events)
+    rows = db_messages(engine_rows, conv)
+    assert [r[0] for r in rows] == ["USER", "ASSISTANT"]
+    assert rows[1][1] == stopping.INTERRUPTED_TEXT and rows[1][2] is None   # a plain note, no blocks
+    assert research_router.stream_guard.active(alice["id"]) == 0
+
+
+def test_new_research_is_refused_fast_while_the_service_is_stopping(client, alice, conv, install_agent, engine_rows, stopping):
+    fake = install_agent([ev("blocks", BLOCKS)])
+    r = ask(client, alice, conv)
+    assert r.status_code == 503 and r.headers["retry-after"] == "5"
+    assert fake.calls == []                                                  # the agent was never called
+    assert [x[0] for x in db_messages(engine_rows, conv)] == []              # nothing was saved: the question was not accepted
+    assert research_router.stream_guard.active(alice["id"]) == 0
+
+
+async def test_a_user_leaving_is_not_recorded_as_an_interruption_when_not_stopping(client, alice, conv, install_agent, engine_rows):
+    from app import shutdown
+    from app.main import app
+
+    assert not shutdown.is_shutting_down()
+    install_agent([ev("checkpoint", {"status": "in_progress", "content": "working"}), 30])
+    await _drive(app, alice["token"], conv, {"query": "hello"}, lambda evs: "checkpoint" in names(evs))
+    await asyncio.sleep(0.3)
+    assert [r[0] for r in db_messages(engine_rows, conv)] == ["USER"]        # unchanged behaviour: no noise for a user who left
+
+
+def test_signal_hook_sets_the_flag_and_still_calls_the_previous_handler():
+    import signal
+
+    from app import shutdown
+
+    calls = []
+    prev = signal.signal(signal.SIGTERM, lambda s, f: calls.append(s))
+    try:
+        shutdown._installed = False
+        shutdown.install_signal_hook()
+        shutdown.reset()
+        signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        assert shutdown.is_shutting_down() and calls == [signal.SIGTERM]     # our flag AND the server's own handler both ran
+    finally:
+        shutdown.reset()
+        signal.signal(signal.SIGTERM, prev)
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+        shutdown._installed = False
+
+
+async def test_in_flight_stream_counter_returns_to_zero_after_normal_disconnect_and_error_paths(client, alice, conv, install_agent):
+    from app import shutdown
+    from app.main import app
+
+    assert shutdown.streams_in_flight() == 0
+    install_agent([ev("blocks", BLOCKS), ev("done", {})])
+    await _drive(app, alice["token"], conv, {"query": "ok"}, lambda evs: False)                       # normal
+    assert shutdown.streams_in_flight() == 0
+    install_agent([ev("checkpoint", {"status": "in_progress", "content": "w"}), 30])
+    await _drive(app, alice["token"], conv, {"query": "leave"}, lambda evs: "checkpoint" in names(evs))  # user disconnects
+    await asyncio.sleep(0.4)
+    assert shutdown.streams_in_flight() == 0
+    install_agent([RuntimeError("agent exploded")])
+    await _drive(app, alice["token"], conv, {"query": "boom"}, lambda evs: False)                      # agent error
+    assert shutdown.streams_in_flight() == 0
+
+
+async def test_lifespan_shutdown_waits_for_unwinding_streams_but_not_forever():
+    from app import shutdown
+
+    shutdown.stream_started()
+    t0 = asyncio.get_running_loop().time()
+    assert await shutdown.wait_for_streams(0.2) is False and asyncio.get_running_loop().time() - t0 >= 0.2   # bounded
+    asyncio.get_running_loop().call_later(0.1, shutdown.stream_finished)
+    assert await shutdown.wait_for_streams(2.0) is True                                                    # returns as soon as it finishes
+    assert shutdown.streams_in_flight() == 0

@@ -649,3 +649,94 @@ def test_cleanup_leaves_no_advisory_lock_behind_over_repeated_passes(engine_rows
         assert cleanup.purge_ended_sessions() is not None
     held = engine_rows("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=%d AND granted" % cleanup._LOCK_ID)[0][0]
     assert held == 0
+
+
+# ── Bearer usage counter (app/legacy_usage.py) ───────────────────────────────────────────────────────────────────────
+
+@pytest.fixture()
+def bearer_counter(monkeypatch):
+    from app import legacy_usage
+
+    monkeypatch.setattr(settings, "legacy_bearer_flush_seconds", 0.0)       # flush on every request in tests
+    r = legacy_usage.get_backend()._get_client()
+    for k in r.scan_iter("lumen:auth:bearer:*"):
+        r.delete(k)
+    legacy_usage.counter.totals.clear()
+    legacy_usage.counter._pending.clear()                                   # leftovers from earlier tests that used the default interval
+    return legacy_usage
+
+
+def _today_counts(mod):
+    return mod.read_report(days=2)["per_day_utc"][next(iter(mod.read_report(days=1)["per_day_utc"]))]
+
+
+def test_bearer_requests_are_counted_by_kind_and_cookie_requests_are_not(bearer_counter, client, make_user):
+    u = make_user()
+    for _ in range(3):
+        assert client.get("/api/auth/me", headers=u["headers"]).status_code == 200
+    legacy_total = _today_counts(bearer_counter)
+    assert sum(legacy_total.values()) == 3                                   # this token kind is whatever register issues
+    c = new_client()
+    register(c)                                                              # cookie session
+    for _ in range(4):
+        assert c.get("/api/auth/me").status_code == 200
+    assert sum(_today_counts(bearer_counter).values()) == 3                  # cookie traffic did not change it
+    assert bearer_counter.read_report()["last_bearer_request_utc"]
+
+
+def test_a_bad_bearer_token_is_not_counted(bearer_counter, client):
+    assert client.get("/api/auth/me", headers={"Authorization": "Bearer not.a.token"}).status_code == 401
+    assert sum(_today_counts(bearer_counter).values()) == 0
+
+
+def test_a_session_bound_token_is_counted_as_session_and_a_sidless_one_as_legacy(bearer_counter, client, make_user):
+    from app import security
+    from app.db import SessionLocal
+    from app.models import User
+
+    u = make_user()
+    with SessionLocal() as db:
+        legacy = security.issue_token(db.get(User, uuid.UUID(u["id"])))      # no session id: the pre-migration kind
+    assert "sid" not in security.decode_token(legacy)
+    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {legacy}"}).status_code == 200
+    assert _today_counts(bearer_counter) == {"legacy": 1, "session": 0}
+
+    c = new_client()
+    register(c)
+    access = c.cookies.get(settings.cookie_names["access"])                 # a session-bound access JWT, sent as a Bearer header
+    assert "sid" in security.decode_token(access)
+    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {access}"}).status_code == 200
+    assert _today_counts(bearer_counter) == {"legacy": 1, "session": 1}
+
+
+def test_redis_down_never_breaks_a_bearer_request(bearer_counter, client, make_user, monkeypatch):
+    u = make_user()
+    backend = bearer_counter.get_backend()
+    monkeypatch.setattr(type(backend), "available", property(lambda self: False))
+    assert client.get("/api/auth/me", headers=u["headers"]).status_code == 200
+
+
+def test_a_failing_flush_is_swallowed(bearer_counter, client, make_user, monkeypatch):
+    u = make_user()
+
+    def boom(batch):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(bearer_counter.counter, "_flush", boom)             # even an unexpected failure must not reach the request
+    assert client.get("/api/auth/me", headers=u["headers"]).status_code == 200
+
+
+def test_flush_itself_swallows_redis_errors_without_tripping_the_rate_limit_breaker(bearer_counter):
+    from collections import Counter
+    from unittest import mock
+
+    backend = bearer_counter.get_backend()
+    before = backend._down_until
+
+    class BadClient:
+        def pipeline(self, **kw):
+            raise ConnectionError("redis went away")
+
+    with mock.patch.object(backend, "_get_client", return_value=BadClient()):
+        bearer_counter._Counter._flush(Counter({"legacy": 2}))              # must not raise
+    assert backend._down_until == before                                    # the counter must not mark Redis as down for the limiter

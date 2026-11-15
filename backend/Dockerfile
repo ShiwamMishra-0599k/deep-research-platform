@@ -22,4 +22,7 @@ USER lumen
 EXPOSE 8080
 
 # Apply migrations (idempotent, advisory-locked), then serve. A failed migration stops the container.
-CMD ["sh", "-c", "python -m app.migrate && exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --no-proxy-headers"]
+# On SIGTERM uvicorn stops accepting, waits for open research streams for SHUTDOWN_GRACE_SECONDS, then cancels what is left (the app saves an
+# "interrupted" note). Keep it BELOW the orchestrator's stop timeout (ECS default 30 s, maximum 120 s) so the process exits by itself, not by SIGKILL.
+ENV SHUTDOWN_GRACE_SECONDS=25
+CMD ["sh", "-c", "python -m app.migrate && exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --no-proxy-headers --timeout-graceful-shutdown ${SHUTDOWN_GRACE_SECONDS}"]

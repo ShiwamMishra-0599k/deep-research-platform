@@ -6,8 +6,8 @@ What is tested, how, against what, and — just as important — what is **not**
 
 | Level | Suite | Count | PostgreSQL | Redis | Agent | LLM | External sites |
 |---|---|---|---|---|---|---|---|
-| Backend unit + API | `backend/tests` | **364** | **real** (isolated container) | **real** (limits, db 3) | scripted fake | – | – |
-| Agent unit + service | `research-agent/tests` | **379** | – | **real** (isolated) + dead/hanging cases | real code, fake `get_agent` for SSE | mocked | mocked; non-loopback sockets blocked |
+| Backend unit + API | `backend/tests` | **376** | **real** (isolated container) | **real** (limits, db 3) | scripted fake | – | – |
+| Agent unit + service | `research-agent/tests` | **391** | – | **real** (isolated) + dead/hanging cases | real code, fake `get_agent` for SSE | mocked | mocked; non-loopback sockets blocked |
 | Full-stack integration (browser) | `e2e/run.py` → `scenario.mjs` | **61** checks | **real** | **real** | **real** (LangGraph + 8 tools) | **fake server** (`e2e/fake_llm.py`) | **faked** (`e2e/run_agent_fake_internet.py`), sealed at socket level |
 | Failure & recovery | `e2e/failure_tests.py` | **39** checks | **real**, container stopped/started | **real**, stopped/started | **real**, killed/relaunched; plus a rogue agent | fake | faked, sealed |
 | Distributed rate limiting | `e2e/multi_instance_tests.py` | **17** checks | **real** | **real**, stopped/started | **real** (3 backend processes + 1 fail-closed) | fake | faked, sealed |
@@ -22,7 +22,7 @@ sites**. They are not tests of live providers.
 
 ## 2. Suites in detail
 
-**Backend (364; was 144, then 230 after rate limiting, then +123 for cookie sessions and production configuration):** the cookie/session suites are `test_sessions` (rotation compare-and-swap, reuse detection, grace window, idle/absolute expiry, revocation), `test_csrf` (missing/forged/other-session tokens, Origin and `Sec-Fetch-Site` rules, Bearer-present-but-bad never falls back, `AUTH_MODE` matrix, cookie flags) and `cookie_helpers`; `test_config` covers the production validator (fail-closed Redis, HTTPS-only CORS, Secure cookies, secret strength, DB URL from components); `test_deploy_templates` validates the AWS/nginx templates. JWT forgery tests run on PyJWT. Original suites: `test_auth` 48 (registration, validation, duplicate/case, concurrency race, login, timing-equal responses,
+**Backend (376; was 144, then 230 after rate limiting, then +123 for cookie sessions and production configuration):** the cookie/session suites are `test_sessions` (rotation compare-and-swap, reuse detection, grace window, idle/absolute expiry, revocation), `test_csrf` (missing/forged/other-session tokens, Origin and `Sec-Fetch-Site` rules, Bearer-present-but-bad never falls back, `AUTH_MODE` matrix, cookie flags) and `cookie_helpers`; `test_config` covers the production validator (fail-closed Redis, HTTPS-only CORS, Secure cookies, secret strength, DB URL from components); `test_deploy_templates` validates the AWS/nginx templates. JWT forgery tests run on PyJWT. Original suites: `test_auth` 48 (registration, validation, duplicate/case, concurrency race, login, timing-equal responses,
 IP throttle, lockout, token expiry/forgery incl. `alg:none`/wrong aud/iss/HS512/tampered, query-token rejection, secret strength);
 `test_conversations` 20 (CRUD, ownership/IDOR on every route, cross-user history isolation, cascade, SQL-injection strings);
 `test_http_security` 15 (headers, 413 declared/streamed, CORS, no docs, no leaks); `test_research_sse` 28 (framing, ordering,
@@ -31,7 +31,7 @@ persistence, clarification, every failure mode, rate/concurrency limits, real AS
 (fresh install, idempotent, no model/migration drift, **legacy database adoption with data intact**, partial schema refused,
 failed migration rolls back, downgrade, concurrent runs); `test_failures` 5 (database down → 503, readiness, fast failure); **new:** `test_ratelimit_redis` 27 (atomicity under an 80-thread burst, exact limits shared across two clients, sliding-window boundary, expiry, lockout across instances, slot TTL, key hygiene, dead/hanging/flapping Redis, fail-closed, breaker, script-cache flush, cold-burst regression), `test_ratelimit_http` 17 (429 + `Retry-After` on every guarded route, exact concurrent HTTP bursts, outage behaviour over HTTP, X-Forwarded-For spoofing and trusted proxies), `test_client_ip` 22, `test_config` 20 (weak/default DB passwords, dev opt-in limits, secrets never echoed, process-level refusal to boot).
 
-**Agent (379, 94 % line coverage):** all eight tools (success, failure, invalid input, fallbacks, timeouts, malformed upstream,
+**Agent (391, 94 % line coverage):** all eight tools (success, failure, invalid input, fallbacks, timeouts, malformed upstream,
 cache hit/miss, errors-never-cached) — `test_tools_data` 108, `test_tools_web` 45, `test_search_providers` 6; SSRF guard 81;
 blocks/checkpoints/follow-ups 49; prompt-injection and forged-row cases 30; SSE handler 18 (framing, interruption, cancellation,
 timeout, concurrency); server 25 (auth, limits, no CORS, protected ops endpoints); Redis 12 (real, dead, hanging); graph 5.

@@ -58,7 +58,7 @@ def start_host_services(delay_ms):
     return stack.wait_http(f"http://127.0.0.1:{stack.P_LLM}/health") and stack.wait_http(f"http://127.0.0.1:{stack.P_AGENT}/health", timeout=240)
 
 
-def start_backend():
+def start_backend(grace=None, faulthandler=False):
     sh("docker", "rm", "-f", NAME)
     b = sh("docker", "build", "-q", "-t", "lumen-backend:perf", "backend", cwd=ROOT)
     if b.returncode:
@@ -67,6 +67,10 @@ def start_backend():
            "AGENT_API_KEY": stack.SECRETS["AGENT_API_KEY"], "RESEARCH_AGENT_URL": f"http://host.docker.internal:{stack.P_AGENT}",
            "REDIS_URL": "redis://host.docker.internal:56379/9", "QUERIES_PER_USER_PER_MINUTE": "1000", "MAX_CONCURRENT_STREAMS_PER_USER": "20",
            "REGISTER_PER_IP_PER_HOUR": "1000", "RESEARCH_TIMEOUT_SECONDS": "120"}
+    if grace is not None:
+        env["SHUTDOWN_GRACE_SECONDS"] = str(grace)
+    if faulthandler:
+        env["PYTHONFAULTHANDLER"] = "1"
     args = ["docker", "run", "-d", "--name", NAME, "-p", f"127.0.0.1:{PORT}:8080", "--add-host", "host.docker.internal:host-gateway"]
     for k, v in env.items():
         args += ["-e", f"{k}={v}"]
@@ -118,6 +122,8 @@ async def scenario(a):
         t_stop = time.monotonic() - t0
         th = threading.Thread(target=do_stop)
         th.start()
+        if a.diagnose_after is not None:
+            threading.Timer(a.diagnose_after, lambda: sh("docker", "kill", "-s", "ABRT", NAME)).start()
         await asyncio.sleep(1.0)
         # A NEW connection while shutting down: should be refused or reset, not accepted and then dropped silently
         new_conn = {}
@@ -138,6 +144,8 @@ def main():
     ap.add_argument("--streams", type=int, default=8)
     ap.add_argument("--llm-delay-ms", type=int, default=5000, help="each research makes 2 LLM calls, so a stream lasts about 2x this")
     ap.add_argument("--stop-after-s", type=float, default=3.0)
+    ap.add_argument("--grace", type=int, default=None, help="SHUTDOWN_GRACE_SECONDS for the container (default: the image default, 25)")
+    ap.add_argument("--diagnose-after", type=float, default=None, help="seconds after SIGTERM to send SIGABRT so faulthandler dumps every thread (debugging a hang)")
     ap.add_argument("--stop-timeout", type=int, default=30, help="`docker stop -t`: seconds before SIGKILL (ECS default stopTimeout is 30)")
     a = ap.parse_args()
     prepare()
@@ -146,7 +154,7 @@ def main():
         if not start_host_services(a.llm_delay_ms):
             print("host services failed to start")
             return 3
-        ok, why = start_backend()
+        ok, why = start_backend(a.grace, a.diagnose_after is not None)
         if not ok:
             lg = sh("docker", "logs", "--tail", "25", NAME)
             print("backend container failed to start", why, (lg.stdout + lg.stderr)[-1500:])
@@ -156,9 +164,12 @@ def main():
         logs = sh("docker", "logs", NAME)
         shutdown_lines = [ln for ln in (logs.stdout + logs.stderr).splitlines() if any(k in ln.lower() for k in ("shutting down", "shutdown", "finished server", "waiting for"))]
         persisted = 0
+        interrupted = None
         try:
             out = sh("docker", "exec", "lumen-test-pg", "psql", "-U", "lumen_test", "-d", DB, "-tAc", "select count(*) from messages where role='ASSISTANT'").stdout.strip()
             persisted = int(out)
+            interrupted = int(sh("docker", "exec", "lumen-test-pg", "psql", "-U", "lumen_test", "-d", DB, "-tAc",
+                                 "select count(*) from messages where role='ASSISTANT' and content like '%restarting while it was answering%'").stdout.strip())
         except Exception:   # noqa: BLE001
             persisted = None
         report = {
@@ -170,7 +181,9 @@ def main():
             "stream_end_times_s": sorted(r["ended_s"] for r in results), "stream_errors": sorted({r["error"] for r in results if r["error"]}),
             "new_connection_during_shutdown": new_conn,
             "assistant_messages_in_db_including_warmup": persisted,
-            "shutdown_log_lines": shutdown_lines[:6],
+            "of_which_interrupted_notes": interrupted,
+            "shutdown_log_lines": [ln for ln in (logs.stdout + logs.stderr).splitlines() if any(k in ln.lower() for k in ("shutdown", "finished server", "waiting for", "cancel", "worker thread"))][:14],
+            "last_log_lines": (logs.stdout + logs.stderr).splitlines()[-(60 if a.diagnose_after is not None else 8):],
         }
         OUT.mkdir(parents=True, exist_ok=True)
         path = OUT / f"sigterm-{time.strftime('%Y%m%d-%H%M%S')}.json"
