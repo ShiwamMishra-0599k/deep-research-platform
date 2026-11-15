@@ -64,9 +64,11 @@ def rename_conversation(
     db: Session = Depends(get_db),
 ) -> Response:
     conv = _owned_or_404(db, user, conv_id)
-    if req.title and req.title.strip():
-        conv.title = req.title.strip()
-        db.commit()
+    title = (req.title or "").strip()
+    if not title:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Title must not be blank")
+    conv.title = title
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
