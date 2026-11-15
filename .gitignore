@@ -25,3 +25,6 @@ frontend/.vite/
 
 # E2E artefacts
 e2e/out/
+
+# DB backups (contain user data and password hashes)
+backups/

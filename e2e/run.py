@@ -39,7 +39,7 @@ AGENT_ENV = {
 
 def backend_env(**extra):
     return {
-        "DATABASE_URL": E2E_DB, "JWT_SECRET": SECRETS["JWT_SECRET"], "AGENT_API_KEY": SECRETS["AGENT_API_KEY"],
+        "DATABASE_URL": E2E_DB, "ALLOW_INSECURE_DEV_DB": "1", "JWT_SECRET": SECRETS["JWT_SECRET"], "AGENT_API_KEY": SECRETS["AGENT_API_KEY"],
         "RESEARCH_AGENT_URL": f"http://127.0.0.1:{P_AGENT}", "CORS_ALLOWED_ORIGINS": f"http://127.0.0.1:{P_WEB}",
         "QUERIES_PER_USER_PER_MINUTE": "60", "RESEARCH_TIMEOUT_SECONDS": "120", **{k: str(v) for k, v in extra.items()},
     }

@@ -1,7 +1,13 @@
-# Required secrets (compose refuses to start without them):
-#   JWT_SECRET      openssl rand -base64 48
-#   AGENT_API_KEY   openssl rand -base64 32   (shared by backend and research-agent)
-# Copy .env.example to .env (git-ignored) and fill them in.
+# Required secrets (compose refuses to start without them). Generate them with:
+#     python scripts/init_env.py        (writes a git-ignored .env; never overwrites an existing one)
+#   JWT_SECRET         signs login tokens
+#   AGENT_API_KEY      shared by backend and research-agent
+#   POSTGRES_PASSWORD  database role password (hex/alphanumeric: it is embedded in DATABASE_URL)
+#
+# The project name is fixed on purpose. Without it Compose derives the name from the folder, so another
+# checkout of this repo (or a copy named the same) would silently attach to THIS project's volumes,
+# or this one to theirs.
+name: lumen
 
 services:
   postgres:
@@ -9,15 +15,17 @@ services:
     container_name: lumen-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: lumen
-      POSTGRES_USER: lumen
-      POSTGRES_PASSWORD: lumen   # development default; see SECURITY_REVIEW.md before any shared deployment
+      POSTGRES_DB: ${POSTGRES_DB:-lumen}
+      POSTGRES_USER: ${POSTGRES_USER:-lumen}
+      # No default. NOTE: this value is applied ONLY when the data volume is first created.
+      # To change the password of an existing volume use scripts/rotate_db_password.py.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (python scripts/init_env.py)}
     ports:
       - "127.0.0.1:5433:5432"    # loopback only
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lumen -d lumen"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -26,7 +34,7 @@ services:
     image: redis:7-alpine
     container_name: lumen-redis
     restart: unless-stopped
-    # Cache only: bounded memory, no persistence needed. Not published to the host (no auth).
+    # Cache + rate-limit state. Bounded memory, no persistence needed. Not published to the host (no auth).
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
     volumes:
       - redis_data:/data
@@ -45,9 +53,9 @@ services:
     env_file:
       - ./research-agent/.env
     environment:
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://redis:6379/0
       PORT: 8004
-      AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY (openssl rand -base64 32)}
+      AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY (python scripts/init_env.py)}
     # No `ports:` on purpose. The agent is reachable only from the backend over the
     # compose network and additionally requires the X-Internal-Token header.
     expose:
@@ -55,6 +63,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8004/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 4s
+      retries: 5
+      start_period: 40s
 
   backend:
     build:
@@ -63,16 +77,25 @@ services:
     container_name: lumen-backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql+psycopg://lumen:lumen@postgres:5432/lumen
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-lumen}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-lumen}
+      # Only for throwaway local development with a weak password; leave unset (0) everywhere else.
+      ALLOW_INSECURE_DEV_DB: ${ALLOW_INSECURE_DEV_DB:-0}
       RESEARCH_AGENT_URL: http://research-agent:8004
-      AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY (openssl rand -base64 32)}
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (openssl rand -base64 48)}
+      AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY (python scripts/init_env.py)}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (python scripts/init_env.py)}
       JWT_EXPIRATION_MINUTES: 1440
-      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      # Distributed rate limiting (shared across backend replicas). Separate logical DB from the agent's cache.
+      REDIS_URL: redis://redis:6379/1
+      RATE_LIMIT_FAIL_MODE: ${RATE_LIMIT_FAIL_MODE:-local}
+      # CIDRs of YOUR reverse proxies whose X-Forwarded-For may be believed. Empty = trust none (safe default).
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
     ports:
       - "127.0.0.1:8080:8080"    # loopback only; put a TLS-terminating proxy in front for real use
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       research-agent:
         condition: service_healthy
