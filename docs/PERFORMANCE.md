@@ -85,11 +85,10 @@ so the floor is about 3.3 s. `CPU` is the share of the **whole 4-core machine** 
 * The gate size (16) and pool (10 + 10) are reasoned from the local pool size, not tuned; the right values depend on the database's `max_connections` and the number of backend tasks.
 * Cost: nothing here prices any infrastructure. See `docs/DEPLOYMENT_PROPOSAL.md` (an estimate, not a measurement).
 
-## 5. ARM64
+## 5. ARM64: verified natively in CI
 
-* **Backend image:** builds for `linux/arm64` (emulated, about 8 minutes) and its native dependencies (psycopg binary, pydantic-core, bcrypt) load as `aarch64`.
-* **Agent image:** builds for `linux/arm64` (emulated, about 20 minutes; the installed wheels resolved without compiling anything, 370 MB). Inside it, under CPU emulation, `platform.machine()` is `aarch64` and these loaded: `pydantic_core` (8 s), **PyMuPDF** (60 s), `httpx`,
-  `redis`, `prometheus_client` and `numpy`. **`pandas` and everything imported after it (LangChain, LangGraph, Deep Agents, yfinance, the application) did not finish importing in more than 9 minutes under emulation, so they are unverified.** This is a limit of emulating a CPU on a
-  4-core laptop, not evidence of a defect, and not evidence of success.
-* **How it will be verified for free:** the CI workflow now has a `docker-arm64` job that builds both images **natively** on a GitHub-hosted arm64 runner (free for public repositories) and loads every native dependency and the agent's application module. It is marked non-blocking until its first run has proved the runner
-  is available; check the Actions tab for its result. Until it passes, treat the ARM Fargate option in the deployment design as unproven (and note there is no deployment).
+* **Native proof (GitHub Actions, free arm64 runner for public repositories; [run 43722137031](https://github.com/ShiwamMishra-0599k/deep-research-platform/actions/runs/43722137031)):** `uname -m` reports `aarch64`; both images build natively (no emulation); inside them the backend's native dependencies (psycopg binary, pydantic-core, bcrypt, and the rest)
+  and the agent's whole stack (PyMuPDF, numpy, pandas, LangGraph and the application module `research_agent.server`) import on `aarch64` (the agent in about 3 seconds). The `docker-arm64` job stays non-blocking so a runner problem cannot fail the main gates; read its result in the Actions tab.
+* **What this does not show:** that the full test suites pass on arm64 (only the imports were run there) or how fast anything is on arm64 hardware.
+* **Earlier attempt, kept for the record:** under local CPU emulation the agent image built (about 20 minutes) and the native extensions `pydantic_core`, PyMuPDF and `numpy` loaded, but `pandas` and the rest of the stack had not finished importing after more than 9 minutes.
+  Emulating a CPU on a 4-core laptop was the wrong tool; a native runner took seconds.

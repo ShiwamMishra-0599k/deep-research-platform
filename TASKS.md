@@ -38,12 +38,12 @@ Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 ## Milestone: CI validation, frontend tests, cookie sessions
 
 - ✅ Frontend test stack (Vitest, jsdom, Testing Library): 253 tests, coverage 99.7 / 94.73 / 100 / 99.7, thresholds 70/60/70/70 enforced in CI (Node >= 22)
-- ✅ HttpOnly-cookie sessions, stages 1-3 (`AUTH_MODE=dual`): 15 min access, rotating refresh (7 days max, 24 h idle), reuse detection, server-side revocation, CSRF token + Origin check, same-origin topology. 379 backend tests; browser e2e 61/61
+- ✅ HttpOnly-cookie sessions, stages 1-3 (`AUTH_MODE=dual`): 15 min access, rotating refresh (7 days max, 24 h idle), reuse detection, server-side revocation, CSRF token + Origin check, same-origin topology. 382 backend tests; browser e2e 61/61
 - ✅ `python-jose` replaced by PyJWT 2.15.1; react-router 7.18.5; `pip-audit` (backend) has no ignores; `npm audit --omit=dev` = 0
 - ✅ Production configuration fails closed (`ENVIRONMENT=production`): Redis required and `RATE_LIMIT_FAIL_MODE=closed`, HTTPS CORS, Secure cookies, HSTS, strong secrets
 - ✅ AWS Secrets Manager + Redis isolation **plan and example templates only** (`docs/AWS_SECRETS_PLAN.md`, `deploy/`); no AWS resource exists
 - ✅ CI: executed on GitHub Actions, run 43697467299 green (all 6 jobs) on 2026-11-15
-- ✅ Suites last run individually on 2026-11-15: backend 379, frontend 253, agent 391, e2e 61 (earlier run), failure 39, multi-instance 17, rotation 19 (earlier runs); staged `scripts/ci_local.py` replay green; GitHub Actions green (run 43697467299 and later)
+- ✅ Suites last run individually on 2026-11-15: backend 382, frontend 253, agent 391, e2e 61 (earlier run), failure 39, multi-instance 17, rotation 19 (earlier runs); staged `scripts/ci_local.py` replay green; GitHub Actions green (run 43697467299 and later)
 
 ## Waiting on you (decisions, in order of leverage)
 

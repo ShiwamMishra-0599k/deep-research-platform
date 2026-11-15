@@ -53,7 +53,7 @@ These come from the automated integration harness, which uses a **fake LLM and f
 
 | Claim | Evidence | Kind |
 |---|---|---|
-| Backend behaviour, auth, sessions, CSRF, rate limits, shutdown | 379 tests against real PostgreSQL and Redis | local, scripted model |
+| Backend behaviour, auth, sessions, CSRF, rate limits, shutdown | 382 tests against real PostgreSQL and Redis | local, scripted model |
 | Research agent | 391 tests, no real network | local, scripted model |
 | Frontend behaviour | 253 tests, 99.7% statement coverage, enforced thresholds | local |
 | Full stack in a real browser | 61-check scenario with a fake LLM and fake web (Edge only) | local, scripted model |
@@ -145,7 +145,7 @@ See [`TEST_PLAN.md`](TEST_PLAN.md) for what each suite covers, what is real vers
 
 ```bash
 # isolated services (never the project's compose volumes) — see AGENTS.md
-(cd backend && .venv/Scripts/python.exe -m pytest)                       # 379 tests, real PostgreSQL + Redis
+(cd backend && .venv/Scripts/python.exe -m pytest)                       # 382 tests, real PostgreSQL + Redis
 (cd research-agent && .venv/Scripts/python.exe -m pytest)                # 391 tests, real Redis, no real network
 python e2e/run.py && python e2e/failure_tests.py                         # browser journey + real outages
 backend/.venv/Scripts/python.exe e2e/multi_instance_tests.py             # 3 backends sharing one Redis; Redis outage/recovery
