@@ -1,4 +1,6 @@
-# Production deployment proposal (for approval; nothing has been created)
+# Production deployment proposal (design only; NOT planned: the project runs on a zero budget)
+
+> Under the owner's INR 0 rule nothing in this document will be deployed or paid for. It stays as a design and cost-analysis artifact that shows how the system would be hosted.
 
 Status: **proposal only.** No AWS resource exists, no credential has been used, no charge has been incurred. Approval of the architecture
 and the monthly cost below is required before any resource is created (see section 9).

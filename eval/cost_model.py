@@ -1,4 +1,4 @@
-"""Budget calculator for the real-provider evaluation. Spends nothing, calls nothing.
+"""OPTIONAL what-if calculator. NOT part of the plan: the project runs at INR 0 (docs/ZERO_BUDGET_PLAN.md). Spends nothing, calls nothing.
 
     python eval/cost_model.py [--inr-per-usd 94.25] [--llm-in 2 --llm-out 10] [--search-per-1k 7]
 
@@ -45,7 +45,7 @@ def main() -> None:
     ap.add_argument("--llm-in", type=float, default=2.0, help="USD per 1M input tokens (reported for a Sonnet-class model; UNVERIFIED)")
     ap.add_argument("--llm-out", type=float, default=10.0, help="USD per 1M output tokens (UNVERIFIED)")
     ap.add_argument("--search-per-1k", type=float, default=7.0, help="Exa search with contents, USD per 1000 requests (reported; UNVERIFIED)")
-    ap.add_argument("--cases", type=int, default=19, help="size of eval/quality_set.json")
+    ap.add_argument("--cases", type=int, default=29, help="size of eval/quality_set.json")
     a = ap.parse_args()
     fx = a.inr_per_usd
 

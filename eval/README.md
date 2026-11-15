@@ -33,4 +33,4 @@ belongs under `manual_review`, not in a scorer with a weak heuristic.
 
 ## Answer quality (real providers; not run yet)
 
-`quality_set.json` (19 fact-checkable cases), `quality_grading.py` (grade sheets and metrics with 95% intervals) and `cost_model.py` (budget) are described in [`../docs/EVALUATION_PLAN.md`](../docs/EVALUATION_PLAN.md). Run a case file with `--cases quality_set.json`. No score from these exists until you approve credentials and a spending cap.
+`quality_set.json` (29 fact-checkable cases), `quality_grading.py` (grade sheets and metrics with 95% intervals) and `cost_model.py` (budget) are described in [`../docs/EVALUATION_PLAN.md`](../docs/EVALUATION_PLAN.md). Run a case file with `--cases quality_set.json`. No score from these exists until you approve credentials and a spending cap.

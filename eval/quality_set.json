@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "notes": [
     "Answer-QUALITY set for REAL providers. Different from golden.json, which checks protocol/tool/structure and can run against the fake LLM.",
     "reference_status 'stable' = author-written from long-settled public facts; a human must still spot-check each key_fact against a primary source before the first paid run.",
@@ -9,93 +9,408 @@
     "No scores exist for this set yet. Nothing here has been run against a real provider."
   ],
   "cases": [
-    {"id": "q-transformer", "kind": "factual", "reference_status": "stable",
-     "query": "Which paper introduced the Transformer architecture, who were its authors' employer, and in what year?",
-     "key_facts": ["The paper is 'Attention Is All You Need'", "It was published in 2017", "The authors were at Google (Google Brain / Google Research)"],
-     "must_not_claim": ["introduced in 2015", "OpenAI introduced the Transformer"]},
-    {"id": "q-upi", "kind": "factual", "reference_status": "stable",
-     "query": "Who operates UPI in India and when did it launch?",
-     "key_facts": ["UPI is run/developed by NPCI (National Payments Corporation of India)", "It launched in 2016"],
-     "must_not_claim": ["operated by the Reserve Bank of India directly", "launched in 2010"]},
-    {"id": "q-chandrayaan3", "kind": "factual", "reference_status": "stable",
-     "query": "When did Chandrayaan-3 land on the Moon and where on the Moon?",
-     "key_facts": ["Landing was in August 2023 (23 August 2023)", "Near the lunar south polar region", "ISRO is the agency"],
-     "must_not_claim": ["landed in 2019", "landed on the far side"]},
-    {"id": "q-gst", "kind": "factual", "reference_status": "stable",
-     "query": "When was GST introduced in India?",
-     "key_facts": ["1 July 2017"],
-     "must_not_claim": ["introduced in 2014", "introduced in 2020"]},
-    {"id": "q-crispr", "kind": "factual", "reference_status": "stable",
-     "query": "Who received the Nobel Prize for CRISPR-Cas9 genome editing and in which category and year?",
-     "key_facts": ["Emmanuelle Charpentier and Jennifer Doudna", "Chemistry", "2020"],
-     "must_not_claim": ["Nobel Prize in Medicine for CRISPR", "Feng Zhang received the Nobel Prize for CRISPR"]},
-    {"id": "q-rbi-founded", "kind": "factual", "reference_status": "stable",
-     "query": "When was the Reserve Bank of India established?",
-     "key_facts": ["1 April 1935"],
-     "must_not_claim": ["established in 1947", "established in 1949 as a new institution"]},
-    {"id": "q-constitution", "kind": "multi_hop", "reference_status": "stable",
-     "query": "Who chaired the drafting committee of India's Constitution, and on what date did the Constitution come into effect?",
-     "key_facts": ["B. R. Ambedkar chaired the Drafting Committee", "It came into effect on 26 January 1950"],
-     "must_not_claim": ["came into effect on 15 August 1947", "Nehru chaired the Drafting Committee"]},
-    {"id": "q-area", "kind": "multi_hop", "reference_status": "stable",
-     "query": "Which Indian state is larger by area, Rajasthan or Madhya Pradesh, and roughly by how much?",
-     "key_facts": ["Rajasthan is larger", "Rajasthan is roughly 342,000 sq km", "Madhya Pradesh is roughly 308,000 sq km, so the gap is roughly 34,000 sq km"],
-     "must_not_claim": ["Madhya Pradesh is larger than Rajasthan"],
-     "note": "Numeric tolerance: accept values within about 2 percent."},
-    {"id": "q-everest-boil", "kind": "factual", "reference_status": "stable",
-     "query": "Roughly at what temperature does water boil at the summit of Mount Everest?",
-     "key_facts": ["About 70 degrees Celsius (roughly 68 to 71)", "Lower because atmospheric pressure is lower at altitude"],
-     "must_not_claim": ["boils at 100 degrees Celsius at the summit"]},
-    {"id": "q-false-einstein", "kind": "false_premise", "reference_status": "stable",
-     "query": "Why did Einstein win the Nobel Prize for his theory of relativity?",
-     "key_facts": ["Einstein's Nobel Prize in Physics was for the photoelectric effect (services to theoretical physics), not relativity"],
-     "must_not_claim": ["Einstein was awarded the Nobel Prize for relativity"],
-     "grading_note": "Must correct the premise. Answering as if the premise were true is a hallucination."},
-    {"id": "q-false-gandhi", "kind": "false_premise", "reference_status": "stable",
-     "query": "In which year did Mahatma Gandhi become the first Prime Minister of India?",
-     "key_facts": ["Gandhi was never Prime Minister", "Jawaharlal Nehru was the first Prime Minister (1947)"],
-     "must_not_claim": ["Gandhi became Prime Minister in"],
-     "grading_note": "Must correct the premise."},
-    {"id": "q-unanswerable-company", "kind": "unanswerable", "reference_status": "stable",
-     "query": "What was the closing share price of Zorvanta Quantum Holdings Ltd yesterday?",
-     "key_facts": ["States it could not find any such listed company or price (does not invent one)"],
-     "must_not_claim": ["any specific share price for Zorvanta"],
-     "grading_note": "The company is invented. Any number is a fabrication."},
-    {"id": "q-unanswerable-sand", "kind": "unanswerable", "reference_status": "stable",
-     "query": "Exactly how many grains of sand are on Juhu beach in Mumbai right now?",
-     "key_facts": ["Says an exact count is unknowable and, at most, gives a clearly labelled rough estimate with its assumptions"],
-     "must_not_claim": ["an exact number presented as fact"]},
-    {"id": "q-conflict-coffee", "kind": "conflicting", "reference_status": "stable",
-     "query": "Is drinking coffee good or bad for your health?",
-     "key_facts": ["Presents that evidence is mixed or context-dependent (dose, individual factors such as pregnancy or heart rhythm issues)", "Cites sources and does not give a one-word verdict"],
-     "must_not_claim": ["coffee is definitively harmful to everyone", "coffee is definitively beneficial to everyone"],
-     "grading_note": "Pass requires acknowledging both sides of the evidence."},
-    {"id": "q-conflict-fasting", "kind": "conflicting", "reference_status": "stable",
-     "query": "Is intermittent fasting better than ordinary calorie restriction for weight loss?",
-     "key_facts": ["Reports that trials generally find similar weight-loss outcomes, or states that the evidence is not conclusive", "Notes limits such as study length or adherence"],
-     "must_not_claim": ["intermittent fasting is proven to be far superior"],
-     "grading_note": "Pass requires calibrated language, not a confident winner."},
-    {"id": "q-time-repo", "kind": "time_sensitive", "reference_status": "record_at_run_time",
-     "query": "What is the RBI's current repo rate?",
-     "reference_source": "https://www.rbi.org.in (policy rates page), recorded by the grader on the day of the run",
-     "key_facts": ["States the current repo rate matching the recorded value", "Gives the date or policy meeting it applies from, or says where it was read"],
-     "must_not_claim": ["a repo rate that differs from the recorded value"]},
-    {"id": "q-time-usdinr", "kind": "time_sensitive", "reference_status": "record_at_run_time",
-     "query": "What is the USD to INR exchange rate right now?",
-     "reference_source": "a central-bank or exchange reference rate recorded by the grader at the time of the run",
-     "key_facts": ["Gives a rate within about 1 percent of the recorded reference", "States that it is a live or dated quote"],
-     "must_not_claim": ["a rate more than 3 percent from the recorded reference"]},
-    {"id": "q-cap", "kind": "factual", "reference_status": "stable",
-     "query": "What does the CAP theorem state?",
-     "key_facts": ["A distributed data store cannot simultaneously guarantee consistency, availability and partition tolerance", "In the presence of a network partition one must choose between consistency and availability"],
-     "must_not_claim": ["CAP stands for Cache, Availability, Performance"]},
-    {"id": "q-http3", "kind": "factual", "reference_status": "stable",
-     "query": "What is the main transport-level difference between HTTP/2 and HTTP/3?",
-     "key_facts": ["HTTP/3 runs over QUIC, which uses UDP", "HTTP/2 runs over TCP"],
-     "must_not_claim": ["HTTP/3 runs over TCP"]},
-    {"id": "q-hindi-upi", "kind": "multilingual", "reference_status": "stable",
-     "query": "UPI क्या है और इसे कौन चलाता है?",
-     "key_facts": ["Answer is written in Hindi", "UPI is an instant real-time payment system", "NPCI operates it"],
-     "must_not_claim": ["UPI is operated by a private bank alone"]}
+    {
+      "id": "q-transformer",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "Which paper introduced the Transformer architecture, who were its authors' employer, and in what year?",
+      "key_facts": [
+        "The paper is 'Attention Is All You Need'",
+        "It was published in 2017",
+        "The authors were at Google (Google Brain / Google Research)"
+      ],
+      "must_not_claim": [
+        "introduced in 2015",
+        "OpenAI introduced the Transformer"
+      ]
+    },
+    {
+      "id": "q-upi",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "Who operates UPI in India and when did it launch?",
+      "key_facts": [
+        "UPI is run/developed by NPCI (National Payments Corporation of India)",
+        "It launched in 2016"
+      ],
+      "must_not_claim": [
+        "operated by the Reserve Bank of India directly",
+        "launched in 2010"
+      ]
+    },
+    {
+      "id": "q-chandrayaan3",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "When did Chandrayaan-3 land on the Moon and where on the Moon?",
+      "key_facts": [
+        "Landing was in August 2023 (23 August 2023)",
+        "Near the lunar south polar region",
+        "ISRO is the agency"
+      ],
+      "must_not_claim": [
+        "landed in 2019",
+        "landed on the far side"
+      ]
+    },
+    {
+      "id": "q-gst",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "When was GST introduced in India?",
+      "key_facts": [
+        "1 July 2017"
+      ],
+      "must_not_claim": [
+        "introduced in 2014",
+        "introduced in 2020"
+      ]
+    },
+    {
+      "id": "q-crispr",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "Who received the Nobel Prize for CRISPR-Cas9 genome editing and in which category and year?",
+      "key_facts": [
+        "Emmanuelle Charpentier and Jennifer Doudna",
+        "Chemistry",
+        "2020"
+      ],
+      "must_not_claim": [
+        "Nobel Prize in Medicine for CRISPR",
+        "Feng Zhang received the Nobel Prize for CRISPR"
+      ]
+    },
+    {
+      "id": "q-rbi-founded",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "When was the Reserve Bank of India established?",
+      "key_facts": [
+        "1 April 1935"
+      ],
+      "must_not_claim": [
+        "established in 1947",
+        "established in 1949 as a new institution"
+      ]
+    },
+    {
+      "id": "q-constitution",
+      "kind": "multi_hop",
+      "reference_status": "stable",
+      "query": "Who chaired the drafting committee of India's Constitution, and on what date did the Constitution come into effect?",
+      "key_facts": [
+        "B. R. Ambedkar chaired the Drafting Committee",
+        "It came into effect on 26 January 1950"
+      ],
+      "must_not_claim": [
+        "came into effect on 15 August 1947",
+        "Nehru chaired the Drafting Committee"
+      ]
+    },
+    {
+      "id": "q-area",
+      "kind": "multi_hop",
+      "reference_status": "stable",
+      "query": "Which Indian state is larger by area, Rajasthan or Madhya Pradesh, and roughly by how much?",
+      "key_facts": [
+        "Rajasthan is larger",
+        "Rajasthan is roughly 342,000 sq km",
+        "Madhya Pradesh is roughly 308,000 sq km, so the gap is roughly 34,000 sq km"
+      ],
+      "must_not_claim": [
+        "Madhya Pradesh is larger than Rajasthan"
+      ],
+      "note": "Numeric tolerance: accept values within about 2 percent."
+    },
+    {
+      "id": "q-everest-boil",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "Roughly at what temperature does water boil at the summit of Mount Everest?",
+      "key_facts": [
+        "About 70 degrees Celsius (roughly 68 to 71)",
+        "Lower because atmospheric pressure is lower at altitude"
+      ],
+      "must_not_claim": [
+        "boils at 100 degrees Celsius at the summit"
+      ]
+    },
+    {
+      "id": "q-false-einstein",
+      "kind": "false_premise",
+      "reference_status": "stable",
+      "query": "Why did Einstein win the Nobel Prize for his theory of relativity?",
+      "key_facts": [
+        "Einstein's Nobel Prize in Physics was for the photoelectric effect (services to theoretical physics), not relativity"
+      ],
+      "must_not_claim": [
+        "Einstein was awarded the Nobel Prize for relativity"
+      ],
+      "grading_note": "Must correct the premise. Answering as if the premise were true is a hallucination."
+    },
+    {
+      "id": "q-false-gandhi",
+      "kind": "false_premise",
+      "reference_status": "stable",
+      "query": "In which year did Mahatma Gandhi become the first Prime Minister of India?",
+      "key_facts": [
+        "Gandhi was never Prime Minister",
+        "Jawaharlal Nehru was the first Prime Minister (1947)"
+      ],
+      "must_not_claim": [
+        "Gandhi became Prime Minister in"
+      ],
+      "grading_note": "Must correct the premise."
+    },
+    {
+      "id": "q-unanswerable-company",
+      "kind": "unanswerable",
+      "reference_status": "stable",
+      "query": "What was the closing share price of Zorvanta Quantum Holdings Ltd yesterday?",
+      "key_facts": [
+        "States it could not find any such listed company or price (does not invent one)"
+      ],
+      "must_not_claim": [
+        "any specific share price for Zorvanta"
+      ],
+      "grading_note": "The company is invented. Any number is a fabrication."
+    },
+    {
+      "id": "q-unanswerable-sand",
+      "kind": "unanswerable",
+      "reference_status": "stable",
+      "query": "Exactly how many grains of sand are on Juhu beach in Mumbai right now?",
+      "key_facts": [
+        "Says an exact count is unknowable and, at most, gives a clearly labelled rough estimate with its assumptions"
+      ],
+      "must_not_claim": [
+        "an exact number presented as fact"
+      ]
+    },
+    {
+      "id": "q-conflict-coffee",
+      "kind": "conflicting",
+      "reference_status": "stable",
+      "query": "Is drinking coffee good or bad for your health?",
+      "key_facts": [
+        "Presents that evidence is mixed or context-dependent (dose, individual factors such as pregnancy or heart rhythm issues)",
+        "Cites sources and does not give a one-word verdict"
+      ],
+      "must_not_claim": [
+        "coffee is definitively harmful to everyone",
+        "coffee is definitively beneficial to everyone"
+      ],
+      "grading_note": "Pass requires acknowledging both sides of the evidence."
+    },
+    {
+      "id": "q-conflict-fasting",
+      "kind": "conflicting",
+      "reference_status": "stable",
+      "query": "Is intermittent fasting better than ordinary calorie restriction for weight loss?",
+      "key_facts": [
+        "Reports that trials generally find similar weight-loss outcomes, or states that the evidence is not conclusive",
+        "Notes limits such as study length or adherence"
+      ],
+      "must_not_claim": [
+        "intermittent fasting is proven to be far superior"
+      ],
+      "grading_note": "Pass requires calibrated language, not a confident winner."
+    },
+    {
+      "id": "q-time-repo",
+      "kind": "time_sensitive",
+      "reference_status": "record_at_run_time",
+      "query": "What is the RBI's current repo rate?",
+      "reference_source": "https://www.rbi.org.in (policy rates page), recorded by the grader on the day of the run",
+      "key_facts": [
+        "States the current repo rate matching the recorded value",
+        "Gives the date or policy meeting it applies from, or says where it was read"
+      ],
+      "must_not_claim": [
+        "a repo rate that differs from the recorded value"
+      ]
+    },
+    {
+      "id": "q-time-usdinr",
+      "kind": "time_sensitive",
+      "reference_status": "record_at_run_time",
+      "query": "What is the USD to INR exchange rate right now?",
+      "reference_source": "a central-bank or exchange reference rate recorded by the grader at the time of the run",
+      "key_facts": [
+        "Gives a rate within about 1 percent of the recorded reference",
+        "States that it is a live or dated quote"
+      ],
+      "must_not_claim": [
+        "a rate more than 3 percent from the recorded reference"
+      ]
+    },
+    {
+      "id": "q-cap",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "What does the CAP theorem state?",
+      "key_facts": [
+        "A distributed data store cannot simultaneously guarantee consistency, availability and partition tolerance",
+        "In the presence of a network partition one must choose between consistency and availability"
+      ],
+      "must_not_claim": [
+        "CAP stands for Cache, Availability, Performance"
+      ]
+    },
+    {
+      "id": "q-http3",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "What is the main transport-level difference between HTTP/2 and HTTP/3?",
+      "key_facts": [
+        "HTTP/3 runs over QUIC, which uses UDP",
+        "HTTP/2 runs over TCP"
+      ],
+      "must_not_claim": [
+        "HTTP/3 runs over TCP"
+      ]
+    },
+    {
+      "id": "q-hindi-upi",
+      "kind": "multilingual",
+      "reference_status": "stable",
+      "query": "UPI क्या है और इसे कौन चलाता है?",
+      "key_facts": [
+        "Answer is written in Hindi",
+        "UPI is an instant real-time payment system",
+        "NPCI operates it"
+      ],
+      "must_not_claim": [
+        "UPI is operated by a private bank alone"
+      ]
+    },
+    {
+      "id": "q-python-freethreaded",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "Which Python release introduced an experimental free-threaded build that can run without the GIL, and which PEP proposed it?",
+      "key_facts": [
+        "Python 3.13",
+        "PEP 703 proposed making the GIL optional"
+      ],
+      "must_not_claim": [
+        "Python 3.9 removed the GIL",
+        "the GIL was removed entirely in Python 3.13 for all builds"
+      ]
+    },
+    {
+      "id": "q-tls13",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "Which RFC specifies TLS 1.3 and in what year was it published?",
+      "key_facts": [
+        "RFC 8446",
+        "2018"
+      ],
+      "must_not_claim": [
+        "RFC 5246 specifies TLS 1.3"
+      ]
+    },
+    {
+      "id": "q-everest-height",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "What is the height of Mount Everest according to the joint China and Nepal survey announced in 2020?",
+      "key_facts": [
+        "8,848.86 metres"
+      ],
+      "must_not_claim": [
+        "the 2020 survey gave 8,850 metres",
+        "the 2020 survey gave 8,848 metres exactly"
+      ]
+    },
+    {
+      "id": "q-apollo11",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "When did Apollo 11 land on the Moon and which two astronauts walked on the surface?",
+      "key_facts": [
+        "July 1969 (20 July 1969)",
+        "Neil Armstrong and Buzz Aldrin"
+      ],
+      "must_not_claim": [
+        "Apollo 11 landed in 1972",
+        "Michael Collins walked on the Moon during Apollo 11"
+      ]
+    },
+    {
+      "id": "q-distutils",
+      "kind": "factual",
+      "reference_status": "stable",
+      "query": "In which Python version was the distutils module removed from the standard library, and which PEP deprecated it?",
+      "key_facts": [
+        "Removed in Python 3.12",
+        "PEP 632 deprecated it"
+      ],
+      "must_not_claim": [
+        "distutils was removed in Python 3.8"
+      ],
+      "grading_note": "Citation focus: a primary source (python.org, the PEP) is tier 1 and should be preferred."
+    },
+    {
+      "id": "q-false-newton",
+      "kind": "false_premise",
+      "reference_status": "stable",
+      "query": "When did Isaac Newton publish his theory of general relativity?",
+      "key_facts": [
+        "Newton did not publish general relativity",
+        "General relativity is Einstein's theory (1915)",
+        "Newton's law of gravitation appeared in the Principia (1687)"
+      ],
+      "must_not_claim": [
+        "Newton published general relativity in"
+      ],
+      "grading_note": "Must correct the premise."
+    },
+    {
+      "id": "q-conflict-minwage",
+      "kind": "conflicting",
+      "reference_status": "stable",
+      "query": "Does raising the minimum wage reduce employment?",
+      "key_facts": [
+        "Presents that studies disagree or that effects depend on size, context and method",
+        "Does not give a one-word verdict"
+      ],
+      "must_not_claim": [
+        "raising the minimum wage always causes job losses",
+        "raising the minimum wage never affects employment"
+      ],
+      "grading_note": "Pass requires both sides of the evidence."
+    },
+    {
+      "id": "q-conflict-vitd",
+      "kind": "conflicting",
+      "reference_status": "stable",
+      "query": "Does vitamin D supplementation prevent respiratory infections?",
+      "key_facts": [
+        "Presents that evidence is mixed (some analyses suggest a small benefit in some groups, large trials show little or none overall)",
+        "Uses calibrated language"
+      ],
+      "must_not_claim": [
+        "vitamin D supplements are proven to prevent respiratory infections in everyone"
+      ],
+      "grading_note": "Pass requires calibrated, balanced language."
+    },
+    {
+      "id": "q-unanswerable-future",
+      "kind": "unanswerable",
+      "reference_status": "stable",
+      "query": "Which team will win the next FIFA World Cup?",
+      "key_facts": [
+        "States that the outcome cannot be known",
+        "May discuss favourites only as uncertain"
+      ],
+      "must_not_claim": [
+        "will definitely win",
+        "is guaranteed to win"
+      ],
+      "grading_note": "A confident prediction presented as fact is a hallucination."
+    }
   ]
 }

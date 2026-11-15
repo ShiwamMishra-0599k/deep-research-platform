@@ -1,5 +1,10 @@
 # Research-quality evaluation plan (prepared; nothing has been run)
 
+> **SUPERSEDED BY THE ZERO-BUDGET RULE (2026-11-15).** The owner has no budget, so the paid evaluation, the INR 3,500 cap (section 5) and every step that needs paid credits
+> or a card are **cancelled**. Read [`ZERO_BUDGET_PLAN.md`](ZERO_BUDGET_PLAN.md) first. Sections 3 and 4 (methodology and scoring) still apply unchanged to a free local model
+> or free-tier run; the provider comparison in section 2 is kept as background research, not a recommendation to spend.
+
+
 Status: **plan only.** No provider key has been used, no paid request has been made, and **no quality, token, latency-against-real-providers or cost
 number exists yet.** Everything below that looks like a number is either a published list price reported by a third party and not yet checked
 against the provider's own page, or an assumption that the pilot run will replace. Results from the fake LLM (`eval/run_hermetic.py`) test protocol and
@@ -10,7 +15,7 @@ tool routing only and say nothing about answer quality.
 | Piece | What it does | Verified how |
 |---|---|---|
 | `eval/golden.json` + `scoring.py` + `run_eval.py` | 16 cases; checks the stream protocol, terminal event, tool selection, block structure, citation presence, forbidden strings | 8 hermetic cases pass against the fake LLM; 14 scorer unit tests |
-| `eval/quality_set.json` | **19 answer-quality cases** with atomic `key_facts`, `must_not_claim` statements and a `kind` (factual, multi-hop, false premise, unanswerable, conflicting evidence, time-sensitive, Hindi) | Structure checked by tests. The facts are author-written from long-settled public knowledge; **a human must spot-check each against a primary source before the first paid run** |
+| `eval/quality_set.json` | **29 answer-quality cases** with atomic `key_facts`, `must_not_claim` statements and a `kind` (factual, multi-hop, false premise, unanswerable, conflicting evidence, time-sensitive, Hindi) | Structure checked by tests. The facts are author-written from long-settled public knowledge; **a human must spot-check each against a primary source before the first paid run** |
 | `eval/quality_grading.py` | Builds a blank grade sheet from a run and aggregates graded sheets into the metrics below, with 95% Wilson intervals | 5 unit tests, including a hand-counted aggregate |
 | `eval/cost_model.py` | Budget range from price and token assumptions, in INR and USD | Runs; the inputs are the unverified part |
 | Spend gate | `--live` refuses without `EVAL_ALLOW_SPEND=1` and `--max-cases` | Refusal confirmed earlier |
@@ -60,7 +65,7 @@ fallback chain in production either way, because search outages are a real failu
    per-task cost is more than 2x the base assumption. Re-run `eval/cost_model.py` with measured values before the next step.
 4. **Full set, one arm at a time, then a comparison.** Repeat each arm 3 times only if the budget allows; one run says nothing about run-to-run variance.
 5. **Grade blind.** A grader should not know which arm produced an answer. Two graders on a subset give an agreement figure; with one grader, say so.
-6. **Report with uncertainty.** With 19 cases every proportion has a wide interval (a score of 16/19 has a 95% interval of about 62% to 95%). Do not rank arms
+6. **Report with uncertainty.** With 29 cases every proportion has a wide interval (a score of 24/29 has a 95% interval of about 66% to 92%). Do not rank arms
    whose intervals overlap, and do not present a point estimate alone.
 7. **Keep fake-LLM and real-provider results in separate tables, labelled.**
 
@@ -82,7 +87,7 @@ fallback chain in production either way, because search outages are a real failu
 An LLM judge can fill the sheet faster and cheaply (about INR 39 for 19 answers on the assumptions) but it inherits the model's blind spots on exactly the
 hallucination and citation checks. If used, run it **in addition** to a human grading of at least a third of the cases and report the agreement.
 
-## 5. Budget (proposal for your approval; nothing is spent until you approve)
+## 5. Budget (CANCELLED: kept only to show the earlier reasoning)
 
 Computed by `python eval/cost_model.py` (INR 94.25 per USD; token and search counts are assumptions; list prices unverified):
 
@@ -105,7 +110,7 @@ propose a new number rather than continue.
   before the pilot; it is free to build and test against the fake LLM.
 * **Reference facts need a human spot-check** (section 3, step 2).
 * **Real-provider failure behaviour** (rate limits, timeouts, quota exhaustion) is only covered by simulated outages.
-* The quality set has 19 cases. It can show gross problems and compare arms that differ a lot. It cannot rank similar systems.
+* The quality set has 29 cases. It can show gross problems and compare arms that differ a lot. It cannot rank similar systems.
 
 ## 7. Safe execution (when you approve)
 
