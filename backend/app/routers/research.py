@@ -12,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
 from ..config import settings
-from ..db import SessionLocal
+from ..db import SessionLocal, db_call
 from ..deps import get_current_user
 from ..models import Conversation, Message, Role, User
 from ..ratelimit import ConcurrencyGuard, SlidingWindowLimiter, Slot
@@ -29,6 +29,8 @@ INTERRUPTED_ERROR = "The research was interrupted before it finished. Please try
 TOO_LARGE_ERROR = "The research result was too large to display."
 
 # Events the agent may send; anything else is dropped (and logged), never forwarded.
+# Saving a finished answer may wait longer for a database slot than a new request: losing it is worse than rejecting a request.
+PERSIST_GATE_WAIT = 30.0
 _ALLOWED_EVENTS = {"checkpoint", "blocks", "clarification", "error", "done"}
 
 _SLOT_TTL = settings.research_timeout_seconds + 120
@@ -146,7 +148,7 @@ async def _persist_with_retry(
 ) -> uuid.UUID | None:
     for attempt in range(3):
         try:
-            return await run_in_threadpool(_persist_assistant, conv_id, res, error_text)
+            return await db_call(_persist_assistant, conv_id, res, error_text, wait=PERSIST_GATE_WAIT)
         except Exception:
             log.exception("persist attempt %d failed", attempt + 1)
             await asyncio.sleep(0.2 * (attempt + 1))
@@ -211,7 +213,7 @@ async def query_conversation(
         )
 
     try:
-        turn = await run_in_threadpool(_start_turn, user_id, conv_id, req.query)
+        turn = await db_call(_start_turn, user_id, conv_id, req.query)
     except Exception:
         await _release_async(adm)
         log.exception("failed to persist user message")
@@ -307,7 +309,7 @@ async def query_conversation(
                 # The client left after the answer was complete: keep it for their history.
                 try:
                     await asyncio.shield(
-                        run_in_threadpool(_persist_assistant, turn.conv_id, res, error_text)
+                        db_call(_persist_assistant, turn.conv_id, res, error_text, wait=PERSIST_GATE_WAIT)
                     )
                 except BaseException:  # noqa: BLE001
                     log.warning("could not persist completed answer after disconnect")

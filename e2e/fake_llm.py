@@ -12,6 +12,7 @@ Behaviour is deterministic and keyword-driven:
 Run:  python e2e/fake_llm.py [port]        (default 18999)
 """
 import json
+import os
 import re
 import sys
 import threading
@@ -92,6 +93,9 @@ def _chunk(delta, finish=None, cid="chatcmpl-fake"):
             "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
 
 
+_DELAY_S = float(os.environ.get("FAKE_LLM_DELAY_MS", "0")) / 1000.0
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -127,6 +131,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(500, {"error": {"message": "fake provider outage", "type": "server_error"}})
         if "slow" in q:
             time.sleep(25)
+        if _DELAY_S:
+            time.sleep(_DELAY_S)   # emulate model latency per call (perf/load_test.py); 0 by default so e2e is unchanged
 
         have_tool_results = bool(_tools_after_last_user(messages))
         if have_tool_results:

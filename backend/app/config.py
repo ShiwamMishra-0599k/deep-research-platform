@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     # Reverse proxies whose X-Forwarded-For header may be believed (comma-separated CIDRs). Empty = trust none.
     trusted_proxy_cidrs: str = ""
 
+    # How long a request may wait for a free database slot before it gets 503 + Retry-After (see db.py).
+    db_gate_wait_seconds: float = 10.0
+
     # Rate limits
     login_per_ip_per_minute: int = 20
     login_failures_per_email: int = 5

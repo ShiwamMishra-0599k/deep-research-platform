@@ -8,10 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 
 from .cleanup import purge_loop
 from .config import settings
-from .db import engine
+from .db import DbBusy, engine
 from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, SecurityHeadersMiddleware
 from .ratelimit import RateLimitUnavailable, get_backend
 from .routers import auth, conversations, research
@@ -52,6 +53,18 @@ app.add_middleware(
     max_age=600,
 )
 app.add_middleware(SecurityHeadersMiddleware)
+
+
+@app.exception_handler(DbBusy)
+async def _db_busy(request: Request, exc: DbBusy) -> JSONResponse:
+    log.warning("database busy: shedding %s %s", request.method, request.url.path)
+    return JSONResponse({"detail": "The service is busy. Please retry shortly."}, status_code=503, headers={"Retry-After": "2"})
+
+
+@app.exception_handler(SATimeoutError)
+async def _pool_timeout(request: Request, exc: SATimeoutError) -> JSONResponse:
+    log.error("database pool exhausted on %s %s", request.method, request.url.path)   # should be unreachable behind the gate
+    return JSONResponse({"detail": "The service is busy. Please retry shortly."}, status_code=503, headers={"Retry-After": "2"})
 
 
 @app.exception_handler(OperationalError)

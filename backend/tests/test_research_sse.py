@@ -399,3 +399,37 @@ async def test_many_concurrent_streams_are_isolated(client, make_user, install_a
     for i, c in enumerate(cids):
         rows = db_messages(engine_rows, c)
         assert [r[0] for r in rows] == ["USER", "ASSISTANT"] and rows[0][1] == f"q-{i}"
+
+
+# ── database connections (found by the local load test) ─────────────────────
+
+def test_a_research_request_never_holds_two_pool_connections_and_none_while_streaming(client, alice, conv, install_agent, monkeypatch):
+    """Regression: authentication kept its session (a pooled connection) open for the whole request while the handler opened a second one.
+    Under burst load every in-flight request held one and waited for another, exhausting the pool (20) until the 30 s timeout: 500s."""
+    from app.db import engine
+
+    seen = {}
+    real_start = research_router._start_turn
+
+    def probe_start(*a, **kw):
+        seen["at_start_turn"] = engine.pool.checkedout()
+        return real_start(*a, **kw)
+
+    monkeypatch.setattr(research_router, "_start_turn", probe_start)
+
+    fake = install_agent([
+        ev("checkpoint", {"status": "in_progress", "content": "Researching your query..."}),
+        ev("blocks", BLOCKS),
+        ev("done", {"status": "completed"}),
+    ])
+    original_call = fake.__call__
+
+    def probing(query, history):
+        seen["at_agent_call"] = engine.pool.checkedout()
+        return original_call(query, history)
+
+    monkeypatch.setattr(research_router, "stream_research", probing)
+
+    assert ask(client, alice, conv).status_code == 200
+    assert seen["at_start_turn"] == 0, "authentication must release its connection before the handler needs another"
+    assert seen["at_agent_call"] == 0, "no connection may be held while the (long) agent stream runs"

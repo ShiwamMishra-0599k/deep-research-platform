@@ -3,10 +3,11 @@ import uuid
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .db import get_db
+from .db import SessionLocal, db_gate
 from .models import AuthSession, User
 from .ratelimit import SlidingWindowLimiter
 from .security import decode_token
@@ -88,9 +89,17 @@ def authenticate(request: Request, db: Session) -> AuthContext:
     return AuthContext(user, "cookie", session)
 
 
-def get_auth_context(request: Request, db: Session = Depends(get_db)) -> AuthContext:
-    ctx = authenticate(request, db)
-    decision = api_user_limiter.hit(str(ctx.user.id))
+def _authenticate_once(request: Request) -> AuthContext:
+    # Own short-lived session: the connection goes back to the pool before the handler runs (a request must never hold one
+    # connection while asking for another). The objects are detached but fully loaded (expire_on_commit=False, no commit here).
+    with SessionLocal() as db:
+        return authenticate(request, db)
+
+
+async def get_auth_context(request: Request) -> AuthContext:
+    async with db_gate():                  # admission to the database phase; see db.py
+        ctx = await run_in_threadpool(_authenticate_once, request)
+    decision = await run_in_threadpool(api_user_limiter.hit, str(ctx.user.id))
     if not decision.allowed:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -100,5 +109,5 @@ def get_auth_context(request: Request, db: Session = Depends(get_db)) -> AuthCon
     return ctx
 
 
-def get_current_user(ctx: AuthContext = Depends(get_auth_context)) -> User:
+async def get_current_user(ctx: AuthContext = Depends(get_auth_context)) -> User:
     return ctx.user
