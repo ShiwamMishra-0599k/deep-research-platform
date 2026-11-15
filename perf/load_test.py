@@ -37,6 +37,12 @@ PERF_URL = f"postgresql+psycopg://lumen_test:lumen_test@127.0.0.1:55432/{PERF_DB
 RL_REDIS = "redis://127.0.0.1:56379/7"      # rate limits for this run (db 7: nothing else uses it)
 AGENT_CACHE_REDIS = "redis://127.0.0.1:56379/8"
 API = f"http://127.0.0.1:{stack.P_API}"
+BASE_OF: dict[str, str] = {}      # Authorization header value -> the backend replica that user is pinned to
+REPLICAS = 1
+
+
+def base_of(headers: dict) -> str:
+    return BASE_OF.get(headers.get("Authorization", ""), API)
 OUT = ROOT / "perf" / "results"
 QUERY = "Please research the Reserve Bank of India repo rate and give me a summary"   # routes to web_search in the fake LLM
 
@@ -180,20 +186,24 @@ def backend_redis_timeouts_since(offset: int) -> tuple[int, int]:
 # ── Virtual users ───────────────────────────────────────────────────────────────────────────────────────────────────
 async def register(client: httpx.AsyncClient, i: int) -> dict:
     email = f"perf{i}-{uuid.uuid4().hex[:8]}@example.com"
-    r = await client.post(f"{API}/api/auth/register", json={"email": email, "password": "Aa1!" + uuid.uuid4().hex[:12], "name": f"perf{i}"})
+    base = f"http://127.0.0.1:{stack.P_API + (i % REPLICAS)}"
+    r = await client.post(f"{base}/api/auth/register", json={"email": email, "password": "Aa1!" + uuid.uuid4().hex[:12], "name": f"perf{i}"})
     r.raise_for_status()
-    return {"Authorization": f"Bearer {r.json()['token']}"}
+    h = {"Authorization": f"Bearer {r.json()['token']}"}
+    BASE_OF[h["Authorization"]] = base
+    return h
 
 
 async def one_research(client: httpx.AsyncClient, headers: dict, query: str, timeout: float) -> dict:
     t0 = time.monotonic()
     res = {"status": None, "ok": False, "first_event_s": None, "first_checkpoint_s": None, "total_s": None, "events": [], "error": None}
     try:
-        c = await client.post(f"{API}/api/conversations", headers=headers, json={})
+        base = base_of(headers)
+        c = await client.post(f"{base}/api/conversations", headers=headers, json={})
         c.raise_for_status()
         cid = c.json()["id"]
         t0 = time.monotonic()
-        async with client.stream("POST", f"{API}/api/conversations/{cid}/query", headers=headers, json={"query": query}, timeout=timeout) as r:
+        async with client.stream("POST", f"{base}/api/conversations/{cid}/query", headers=headers, json={"query": query}, timeout=timeout) as r:
             res["status"] = r.status_code
             if r.status_code != 200:
                 await r.aread()
@@ -255,7 +265,7 @@ async def api_load(users, conc, seconds):
                 for path in ("/api/auth/me", "/api/conversations"):
                     t = time.monotonic()
                     try:
-                        r = await c.get(API + path, headers=h)
+                        r = await c.get(base_of(h) + path, headers=h)
                         (lat if r.status_code == 200 else errs).append(time.monotonic() - t if r.status_code == 200 else r.status_code)
                     except Exception as e:   # noqa: BLE001
                         errs.append(type(e).__name__)
@@ -278,23 +288,31 @@ def prepare_database():
         redis.Redis.from_url(u).flushdb()
 
 
-def start_stack(delay_ms: int, redis_timeout=None, fail_mode=None):
+def start_stack(delay_ms: int, redis_timeout=None, fail_mode=None, replicas: int = 1):
+    """One fake LLM, then `replicas` pairs of (agent, backend) on consecutive ports; replica 0 keeps the historical names."""
     stack.start("perf_fake_llm", [stack.AGENT_PY, ROOT / "e2e" / "fake_llm.py", stack.P_LLM], {"FAKE_LLM_DELAY_MS": str(delay_ms)})
+    pids = {"fake_llm": stack.procs[0].pid}
     agent_env = {**stack.AGENT_ENV, "REDIS_URL": AGENT_CACHE_REDIS}
-    agent = stack.start("perf_agent", [stack.AGENT_PY, ROOT / "e2e" / "run_agent_fake_internet.py", stack.P_AGENT], agent_env, cwd=ROOT / "research-agent")
-    be_env = stack.backend_env(DATABASE_URL=PERF_URL, REDIS_URL=RL_REDIS, QUERIES_PER_USER_PER_MINUTE=100000,
-                               MAX_CONCURRENT_STREAMS_PER_USER=50, MAX_CONCURRENT_STREAMS_GLOBAL=10000,
-                               API_REQUESTS_PER_USER_PER_MINUTE=1000000, REGISTER_PER_IP_PER_HOUR=100000)
-    be_env["DATABASE_URL"] = PERF_URL
-    if redis_timeout is not None:
-        be_env["REDIS_TIMEOUT_SECONDS"] = str(redis_timeout)
-    if fail_mode:
-        be_env["RATE_LIMIT_FAIL_MODE"] = fail_mode
-    backend = stack.start("perf_backend", [stack.BACKEND_PY, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", stack.P_API],
-                          be_env, cwd=ROOT / "backend")
-    ok = (stack.wait_http(f"http://127.0.0.1:{stack.P_LLM}/health") and stack.wait_http(f"http://127.0.0.1:{stack.P_AGENT}/health", timeout=240)
-          and stack.wait_http(f"{API}/health/ready", timeout=120))
-    return ok, {"fake_llm": stack.procs[0].pid, "agent": agent.pid, "backend": backend.pid}
+    for r in range(replicas):
+        sfx = "" if r == 0 else str(r)
+        agent = stack.start(f"perf_agent{sfx}", [stack.AGENT_PY, ROOT / "e2e" / "run_agent_fake_internet.py", stack.P_AGENT + r], agent_env, cwd=ROOT / "research-agent")
+        be_env = stack.backend_env(DATABASE_URL=PERF_URL, REDIS_URL=RL_REDIS, QUERIES_PER_USER_PER_MINUTE=100000,
+                                   MAX_CONCURRENT_STREAMS_PER_USER=50, MAX_CONCURRENT_STREAMS_GLOBAL=10000,
+                                   API_REQUESTS_PER_USER_PER_MINUTE=1000000, REGISTER_PER_IP_PER_HOUR=100000,
+                                   RESEARCH_AGENT_URL=f"http://127.0.0.1:{stack.P_AGENT + r}")
+        be_env["DATABASE_URL"] = PERF_URL
+        if redis_timeout is not None:
+            be_env["REDIS_TIMEOUT_SECONDS"] = str(redis_timeout)
+        if fail_mode:
+            be_env["RATE_LIMIT_FAIL_MODE"] = fail_mode
+        backend = stack.start(f"perf_backend{sfx}", [stack.BACKEND_PY, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", stack.P_API + r],
+                              be_env, cwd=ROOT / "backend")
+        pids[f"agent{sfx}"] = agent.pid
+        pids[f"backend{sfx}"] = backend.pid
+    ok = stack.wait_http(f"http://127.0.0.1:{stack.P_LLM}/health")
+    for r in range(replicas):
+        ok = ok and stack.wait_http(f"http://127.0.0.1:{stack.P_AGENT + r}/health", timeout=240) and stack.wait_http(f"http://127.0.0.1:{stack.P_API + r}/health/ready", timeout=120)
+    return ok, pids
 
 
 async def fault_agent_kill(users, agent_cmd_env, sampler):
@@ -360,6 +378,50 @@ async def fault_redis_stall(users, stall_ms: int, seconds: float, conc: int):
     }
 
 
+async def soak(users, conc: int, seconds: float, sampler: "Sampler"):
+    """Steady load for `seconds`; per-minute latency and error buckets, and the memory trend of every process."""
+    t_begin = time.time()
+    done: list[tuple[float, bool, float]] = []        # (finished at, ok, total_s)
+    errors: list[str] = []
+
+    async def worker(i):
+        async with httpx.AsyncClient(timeout=120) as c:
+            while time.time() - t_begin < seconds:
+                r = await one_research(c, users[i % len(users)], QUERY, 120)
+                done.append((time.time(), bool(r["ok"]), r["total_s"] or 0.0))
+                if not r["ok"]:
+                    errors.append(str(r["error"]))
+
+    await asyncio.gather(*(worker(i) for i in range(conc)))
+    t_end = time.time()
+    minutes = []
+    for m in range(int((t_end - t_begin) // 60) + 1):
+        lo, hi = t_begin + m * 60, t_begin + (m + 1) * 60
+        rows = [(ok, tot) for ts, ok, tot in done if lo <= ts < hi]
+        oks = [tot for ok, tot in rows if ok]
+        win = sampler.window(lo, min(hi, t_end))
+        minutes.append({"minute": m + 1, "requests": len(rows), "failed": sum(1 for ok, _ in rows if not ok),
+                        "total_s_p50": pct(oks, 50), "total_s_p95": pct(oks, 95),
+                        "rss_mb": {k[:-7]: v["max"] for k, v in win.items() if k.endswith("_rss_mb")},
+                        "pg_conns_max": win.get("pg_conns", {}).get("max")})
+    # memory trend: least-squares slope of RSS over time per process, ignoring the first 20 % (warm-up)
+    trend = {}
+    names = sorted({k for r in sampler.rows for k in r if k.endswith("_rss_mb")})
+    for k in names:
+        pts = [(r["t"] - t_begin, r[k]) for r in sampler.rows if r.get(k) is not None and t_begin <= r["t"] <= t_end]
+        pts = pts[len(pts) // 5:]
+        if len(pts) > 10:
+            n = len(pts)
+            mx = sum(x for x, _ in pts) / n
+            my = sum(y for _, y in pts) / n
+            den = sum((x - mx) ** 2 for x, _ in pts) or 1.0
+            slope = sum((x - mx) * (y - my) for x, y in pts) / den
+            trend[k[:-7]] = {"start_mb": round(pts[0][1], 1), "end_mb": round(pts[-1][1], 1), "slope_mb_per_min": round(slope * 60, 2)}
+    return {"seconds": round(t_end - t_begin), "concurrency": conc, "requests": len(done), "failed": sum(1 for _, ok, _ in done if not ok),
+            "error_kinds": sorted(set(errors))[:5], "per_minute": minutes, "rss_trend_after_warmup": trend,
+            "redis_evicted_delta": sampler.window(t_begin, t_end).get("redis_evicted_delta")}
+
+
 def git_sha():
     sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=ROOT).stdout.strip()
     dirty = subprocess.run(["git", "status", "--porcelain", "--", "backend/app", "research-agent/src", "e2e", "perf"],
@@ -368,7 +430,9 @@ def git_sha():
 
 
 async def amain(a):
-    ok, pids = start_stack(a.llm_delay_ms, a.redis_timeout_s, a.fail_mode)
+    global REPLICAS
+    REPLICAS = a.replicas
+    ok, pids = start_stack(a.llm_delay_ms, a.redis_timeout_s, a.fail_mode, a.replicas)
     if not ok:
         print("stack failed to start; see e2e/out/perf_*.log")
         return 3
@@ -389,7 +453,7 @@ async def amain(a):
             "when": time.strftime("%Y-%m-%dT%H:%M:%S"), "git": git_sha(),
             "machine": {"cpus": psutil.cpu_count(), "ram_gb": round(psutil.virtual_memory().total / 1e9, 1), "os": platform.platform(),
                         "python": platform.python_version()},
-            "setup": {"cpu_hog_processes": a.cpu_hog, "backend_redis_timeout_s": a.redis_timeout_s if a.redis_timeout_s is not None else "default 0.25", "rate_limit_fail_mode": a.fail_mode or "default (local)", "backend_workers": 1, "agent_workers": 1, "llm_delay_ms_per_call": a.llm_delay_ms, "rounds": a.rounds,
+            "setup": {"replicas_backend_and_agent_pairs": a.replicas, "cpu_hog_processes": a.cpu_hog, "backend_redis_timeout_s": a.redis_timeout_s if a.redis_timeout_s is not None else "default 0.25", "rate_limit_fail_mode": a.fail_mode or "default (local)", "backend_workers": 1, "agent_workers": 1, "llm_delay_ms_per_call": a.llm_delay_ms, "rounds": a.rounds,
                       "query": QUERY, "note": "each research makes 2 LLM calls (tool request, then answer) plus one fake web search"},
             "levels": [],
         }
@@ -407,6 +471,10 @@ async def amain(a):
             print("fault: kill the agent mid-run ...", flush=True)
             report["fault_agent_kill"] = await fault_agent_kill(users, {**stack.AGENT_ENV, "REDIS_URL": AGENT_CACHE_REDIS}, sampler)
             print("  ", json.dumps(report["fault_agent_kill"]), flush=True)
+        if a.soak_seconds:
+            print(f"soak: {a.soak_conc} concurrent users for {a.soak_seconds} s ...", flush=True)
+            report["soak"] = await soak(users, a.soak_conc, a.soak_seconds, sampler)
+            print("  ", json.dumps(report["soak"]["rss_trend_after_warmup"]), "failed", report["soak"]["failed"], "of", report["soak"]["requests"], flush=True)
         if a.fault == "redis-stall":
             print(f"fault: freeze Redis for {a.stall_ms} ms under sustained load ...", flush=True)
             report["fault_redis_stall"] = await fault_redis_stall(users, a.stall_ms, 25.0, a.stall_conc)
@@ -438,6 +506,9 @@ def main():
     ap.add_argument("--stall-ms", type=int, default=700, help="how long the rate-limit Redis is frozen for --fault redis-stall")
     ap.add_argument("--stall-conc", type=int, default=20, help="concurrent users during --fault redis-stall (1 = a single user: nothing in flight to heal the breaker)")
     ap.add_argument("--fail-mode", choices=["local", "closed"], default=None, help="RATE_LIMIT_FAIL_MODE for the backend (production uses closed)")
+    ap.add_argument("--replicas", type=int, default=1, help="run N paired (backend, agent) processes; users are pinned round-robin")
+    ap.add_argument("--soak-seconds", type=int, default=0, help="steady load for this long, then report the memory trend")
+    ap.add_argument("--soak-conc", type=int, default=10)
     ap.add_argument("--cpu-hog", type=int, default=0, help="run N busy-loop processes during the test to emulate a loaded host")
     ap.add_argument("--redis-timeout-s", type=float, default=None, help="REDIS_TIMEOUT_SECONDS for the backend (default 0.25)")
     a = ap.parse_args()

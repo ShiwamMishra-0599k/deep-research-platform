@@ -120,3 +120,17 @@ propose a new number rather than continue.
 4. Check the pilot's measured cost against section 5 before the full run; only then raise `--max-cases`.
 5. After each run, revoke or rotate the key if you will not use it again, and check the provider dashboard against the harness's own estimate.
 6. Grade with `python eval/quality_grading.py sheet --results <run>.json`, fill the sheet, then `report`.
+
+## 8. Tier B result: a citation-support baseline (no language model)
+
+`eval/component/citation_support.py` decides whether a source passage supports a claim using only word overlap, exact number matching and a negation check. It exists to **pre-fill suggestions for the human grader** (never to replace one) and to give the project one real, measured component result before any model is run.
+`eval/component/run_citation_eval.py` scores it on 36 hand-labelled (claim, passage) pairs (12 supported, 12 unsupported, 12 contradicted) split into a dev set and a test set; the thresholds were never tuned (two dev errors were left alone because fixing them would have meant hacking the specific sentences).
+
+| Split | Correct | Accuracy (95% Wilson interval) | Macro F1 |
+|---|---|---|---|
+| dev (18) | 16 | 88.9% (67% to 97%) | 0.88 |
+| **test (18, scored once)** | **14** | **77.8% (55% to 91%)** | **0.78** |
+
+The four test errors are the baseline's known weaknesses: paraphrase ("introduced" against "came into force"; "specifies" against "is defined in"), a swapped number that still appears elsewhere in the passage (RFC 5246 against RFC 8446) and a swapped person the words cannot reveal.
+**How to read this:** the pairs were written by the project author, so this is optimistic compared with real model output; 18 pairs per split is small; and it measures the heuristic, **not Lumen's citation quality**. That still needs real answers and a human grader. A language-model judge would handle paraphrase better, which is the reason to run the real evaluation, not a reason to trust this number.
+Tests pin these exact figures (`eval/tests/test_citation_support.py`), so this section cannot drift from the code.

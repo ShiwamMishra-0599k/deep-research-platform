@@ -62,7 +62,7 @@ With 29 cases every proportion has a wide 95% interval (roughly +/- 13 to 17 poi
 | 5 | Investigate load-test `ReadError`s and Redis timeouts; fix or document | 0 | **Done**: Redis is not slow; the breaker amplified stalls and is fixed (measured, 3 new tests); the `ReadError` cause is not established and did not recur (`docs/PERFORMANCE.md` 3a) |
 | 6 | ARM64: a native build job in CI (free arm64 runners for public repositories) | 0 | **Done and verified** natively: both images build and the whole stack imports on aarch64 ([run 43722137031](https://github.com/ShiwamMishra-0599k/deep-research-platform/actions/runs/43722137031)); test suites were not run on arm64 |
 | 7 | Multi-worker scaling test and a soak test with memory-growth measurement | 0 | Yes (bounded by this machine) |
-| 8 | Tier B component evaluations (citation checker, BM25) | 0 | Yes |
+| 8 | Tier B component evaluation | 0 | **Done for the one component Lumen has**: a citation-support baseline scored on a held-out split, 14 of 18 (77.8%, interval 55% to 91%); see `docs/EVALUATION_PLAN.md` section 8. Retrieval benchmarking was dropped: Lumen has no retrieval component of its own (it uses search providers), so a BM25 benchmark would be padding |
 | 9 | Portfolio gap review and fixes: API reference, architecture diagram, demo script, "run it in 5 minutes without keys" path, honest limitations | 0 | Yes |
 | 10 | Tier C pilot on a free local model | 0 | **Only after you approve the download** |
 | 11 | Optional free-tier API run | 0 | Only if you create the account |

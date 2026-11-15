@@ -1,0 +1,262 @@
+{
+  "version": 1,
+  "notes": [
+    "36 pairs written by the project author (an AI assistant working for the owner) from settled public facts; passages are original paraphrases, not copied text.",
+    "Labels are by the author, so this set measures a baseline on the author's own distribution and is OPTIMISTIC for real model output. 'dev' (18) may be used to tune; 'test' (18) is scored once.",
+    "contradicted = the passage says something different from the claim. unsupported = the passage is topical but silent."
+  ],
+  "pairs": [
+    {
+      "id": "sup-01",
+      "label": "supported",
+      "split": "dev",
+      "claim": "Chandrayaan-3 landed near the lunar south pole in August 2023.",
+      "passage": "India's Chandrayaan-3 lander touched down on 23 August 2023 close to the Moon's south polar region, making India the fourth country to land on the Moon."
+    },
+    {
+      "id": "sup-02",
+      "label": "supported",
+      "split": "test",
+      "claim": "GST was introduced in India on 1 July 2017.",
+      "passage": "The Goods and Services Tax came into force across India on 1 July 2017, replacing many indirect taxes levied by the central and state governments."
+    },
+    {
+      "id": "sup-03",
+      "label": "supported",
+      "split": "dev",
+      "claim": "HTTP/3 runs over QUIC, which uses UDP.",
+      "passage": "HTTP/3 is the third major version of the protocol. Unlike earlier versions it does not use TCP; it runs over QUIC, a transport protocol built on UDP."
+    },
+    {
+      "id": "sup-04",
+      "label": "supported",
+      "split": "test",
+      "claim": "The CAP theorem says a distributed data store cannot provide consistency, availability and partition tolerance at the same time.",
+      "passage": "The CAP theorem states that a distributed data store cannot simultaneously provide more than two of the three guarantees: consistency, availability and partition tolerance."
+    },
+    {
+      "id": "sup-05",
+      "label": "supported",
+      "split": "dev",
+      "claim": "Apollo 11 landed on the Moon in July 1969.",
+      "passage": "Apollo 11 was the first crewed mission to land on the Moon. The lunar module touched down on 20 July 1969, and Neil Armstrong and Buzz Aldrin walked on the surface."
+    },
+    {
+      "id": "sup-06",
+      "label": "supported",
+      "split": "test",
+      "claim": "RFC 8446 specifies TLS 1.3.",
+      "passage": "TLS 1.3 is defined in RFC 8446, published by the IETF in August 2018, and obsoletes RFC 5246."
+    },
+    {
+      "id": "sup-07",
+      "label": "supported",
+      "split": "dev",
+      "claim": "The Reserve Bank of India was established on 1 April 1935.",
+      "passage": "The Reserve Bank of India, the country's central bank, was established on 1 April 1935 under the Reserve Bank of India Act, 1934."
+    },
+    {
+      "id": "sup-08",
+      "label": "supported",
+      "split": "test",
+      "claim": "Python 3.12 removed the distutils module.",
+      "passage": "In Python 3.12 the long-deprecated distutils package was removed from the standard library, as planned in PEP 632."
+    },
+    {
+      "id": "sup-09",
+      "label": "supported",
+      "split": "dev",
+      "claim": "Mount Everest is 8,848.86 metres high.",
+      "passage": "In December 2020 China and Nepal jointly announced a new official height for Mount Everest: 8,848.86 metres above sea level."
+    },
+    {
+      "id": "sup-10",
+      "label": "supported",
+      "split": "test",
+      "claim": "Emmanuelle Charpentier and Jennifer Doudna won the 2020 Nobel Prize in Chemistry.",
+      "passage": "The 2020 Nobel Prize in Chemistry was awarded to Emmanuelle Charpentier and Jennifer Doudna for developing a method for genome editing."
+    },
+    {
+      "id": "sup-11",
+      "label": "supported",
+      "split": "dev",
+      "claim": "Water boils at about 70 degrees Celsius at the summit of Mount Everest.",
+      "passage": "At the summit of Mount Everest, where air pressure is about a third of that at sea level, water boils at roughly 70 degrees Celsius."
+    },
+    {
+      "id": "sup-12",
+      "label": "supported",
+      "split": "test",
+      "claim": "The Constitution of India came into effect on 26 January 1950.",
+      "passage": "India's Constitution was adopted on 26 November 1949 and came into effect on 26 January 1950, which is celebrated as Republic Day."
+    },
+    {
+      "id": "uns-01",
+      "label": "unsupported",
+      "split": "dev",
+      "claim": "UPI was launched in 2016.",
+      "passage": "The Unified Payments Interface (UPI) lets users link several bank accounts in one mobile app and send money using a virtual payment address."
+    },
+    {
+      "id": "uns-02",
+      "label": "unsupported",
+      "split": "test",
+      "claim": "Chandrayaan-3 carried a rover named Pragyan.",
+      "passage": "Chandrayaan-3 is an Indian lunar mission consisting of a lander and a propulsion module, planned to demonstrate a soft landing near the Moon's south pole."
+    },
+    {
+      "id": "uns-03",
+      "label": "unsupported",
+      "split": "dev",
+      "claim": "GST has four main tax slabs.",
+      "passage": "The Goods and Services Tax is a destination-based tax applied on the supply of goods and services across India."
+    },
+    {
+      "id": "uns-04",
+      "label": "unsupported",
+      "split": "test",
+      "claim": "QUIC was originally developed by Google.",
+      "passage": "HTTP/3 runs over QUIC, which uses UDP and reduces connection setup time compared with TCP-based protocols."
+    },
+    {
+      "id": "uns-05",
+      "label": "unsupported",
+      "split": "dev",
+      "claim": "Apollo 11 launched from Kennedy Space Center.",
+      "passage": "Apollo 11 was the first crewed mission to land on the Moon, carrying astronauts Neil Armstrong, Buzz Aldrin and Michael Collins."
+    },
+    {
+      "id": "uns-06",
+      "label": "unsupported",
+      "split": "test",
+      "claim": "TLS 1.3 removes support for static RSA key exchange.",
+      "passage": "TLS 1.3 is the latest version of the Transport Layer Security protocol, used to secure web traffic."
+    },
+    {
+      "id": "uns-07",
+      "label": "unsupported",
+      "split": "dev",
+      "claim": "The Reserve Bank of India has its headquarters in Mumbai.",
+      "passage": "The Reserve Bank of India is the country's central bank and regulates the issue of banknotes and the monetary policy."
+    },
+    {
+      "id": "uns-08",
+      "label": "unsupported",
+      "split": "test",
+      "claim": "Python 3.13 makes the GIL optional in a free-threaded build.",
+      "passage": "Python 3.12 removed distutils and improved error messages and the performance of comprehensions."
+    },
+    {
+      "id": "uns-09",
+      "label": "unsupported",
+      "split": "dev",
+      "claim": "Mount Everest lies on the border between Nepal and Tibet.",
+      "passage": "Mount Everest is Earth's highest mountain above sea level and is a popular destination for climbers."
+    },
+    {
+      "id": "uns-10",
+      "label": "unsupported",
+      "split": "test",
+      "claim": "Jennifer Doudna is a professor at the University of California, Berkeley.",
+      "passage": "The 2020 Nobel Prize in Chemistry was awarded to Emmanuelle Charpentier and Jennifer Doudna for developing a method for genome editing."
+    },
+    {
+      "id": "uns-11",
+      "label": "unsupported",
+      "split": "dev",
+      "claim": "Boiling points fall by roughly one degree Celsius for every 300 metres of altitude.",
+      "passage": "Water boils at a lower temperature at high altitude because the air pressure is lower."
+    },
+    {
+      "id": "uns-12",
+      "label": "unsupported",
+      "split": "test",
+      "claim": "The Constitution of India has 395 articles in its original form.",
+      "passage": "India's Constitution was adopted on 26 November 1949 and came into effect on 26 January 1950, which is celebrated as Republic Day."
+    },
+    {
+      "id": "con-01",
+      "label": "contradicted",
+      "split": "dev",
+      "claim": "Chandrayaan-3 landed on the Moon in August 2019.",
+      "passage": "India's Chandrayaan-3 lander touched down on 23 August 2023 close to the Moon's south polar region, making India the fourth country to land on the Moon."
+    },
+    {
+      "id": "con-02",
+      "label": "contradicted",
+      "split": "test",
+      "claim": "GST was introduced in India on 1 July 2014.",
+      "passage": "The Goods and Services Tax came into force across India on 1 July 2017, replacing many indirect taxes levied by the central and state governments."
+    },
+    {
+      "id": "con-03",
+      "label": "contradicted",
+      "split": "dev",
+      "claim": "HTTP/3 runs over TCP.",
+      "passage": "HTTP/3 is the third major version of the protocol. Unlike earlier versions it does not use TCP; it runs over QUIC, a transport protocol built on UDP."
+    },
+    {
+      "id": "con-04",
+      "label": "contradicted",
+      "split": "test",
+      "claim": "The CAP theorem says a distributed data store can provide consistency, availability and partition tolerance at the same time.",
+      "passage": "The CAP theorem states that a distributed data store cannot simultaneously provide more than two of the three guarantees: consistency, availability and partition tolerance."
+    },
+    {
+      "id": "con-05",
+      "label": "contradicted",
+      "split": "dev",
+      "claim": "Apollo 11 landed on the Moon in July 1972.",
+      "passage": "Apollo 11 was the first crewed mission to land on the Moon. The lunar module touched down on 20 July 1969, and Neil Armstrong and Buzz Aldrin walked on the surface."
+    },
+    {
+      "id": "con-06",
+      "label": "contradicted",
+      "split": "test",
+      "claim": "RFC 5246 specifies TLS 1.3.",
+      "passage": "TLS 1.3 is defined in RFC 8446, published by the IETF in August 2018, and obsoletes RFC 5246."
+    },
+    {
+      "id": "con-07",
+      "label": "contradicted",
+      "split": "dev",
+      "claim": "The Reserve Bank of India was established on 1 April 1947.",
+      "passage": "The Reserve Bank of India, the country's central bank, was established on 1 April 1935 under the Reserve Bank of India Act, 1934."
+    },
+    {
+      "id": "con-08",
+      "label": "contradicted",
+      "split": "test",
+      "claim": "Python 3.8 removed the distutils module.",
+      "passage": "In Python 3.12 the long-deprecated distutils package was removed from the standard library, as planned in PEP 632."
+    },
+    {
+      "id": "con-09",
+      "label": "contradicted",
+      "split": "dev",
+      "claim": "Mount Everest is 8,850 metres high.",
+      "passage": "In December 2020 China and Nepal jointly announced a new official height for Mount Everest: 8,848.86 metres above sea level."
+    },
+    {
+      "id": "con-10",
+      "label": "contradicted",
+      "split": "test",
+      "claim": "Feng Zhang won the 2020 Nobel Prize in Chemistry.",
+      "passage": "The 2020 Nobel Prize in Chemistry was awarded to Emmanuelle Charpentier and Jennifer Doudna for developing a method for genome editing."
+    },
+    {
+      "id": "con-11",
+      "label": "contradicted",
+      "split": "dev",
+      "claim": "Water boils at about 100 degrees Celsius at the summit of Mount Everest.",
+      "passage": "At the summit of Mount Everest, where air pressure is about a third of that at sea level, water boils at roughly 70 degrees Celsius."
+    },
+    {
+      "id": "con-12",
+      "label": "contradicted",
+      "split": "test",
+      "claim": "The Constitution of India came into effect on 15 August 1947.",
+      "passage": "India's Constitution was adopted on 26 November 1949 and came into effect on 26 January 1950, which is celebrated as Republic Day."
+    }
+  ]
+}

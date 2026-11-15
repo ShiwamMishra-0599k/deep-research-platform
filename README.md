@@ -60,6 +60,7 @@ These come from the automated integration harness, which uses a **fake LLM and f
 | Outages, multiple replicas, credential rotation | 39, 17 and 19 checks | local |
 | CI | GitHub Actions passes on the release branch (lint, security scans, backend, agent, frontend, Docker); the workflow is not on `main` yet | GitHub |
 | Load, graceful shutdown, failure recovery | Measured with a fixed-latency stand-in for the model on one 4-core laptop: defects found and fixed, limits recorded in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) | local, scripted model |
+| Citation-support baseline (no LLM) | 14 of 18 on a held-out, hand-labelled split (77.8%, 95% interval 55% to 91%); a heuristic for pre-filling a human grader, not a measure of Lumen's citations ([`docs/EVALUATION_PLAN.md`](docs/EVALUATION_PLAN.md) section 8) | local, no model |
 | **Real LLM and search quality** | **Not measured.** A 29-question benchmark, grading code and plan exist; no score does ([`docs/ZERO_BUDGET_PLAN.md`](docs/ZERO_BUDGET_PLAN.md)) | not run |
 | Production deployment, TLS, backups, cost | **Not done and not planned** (no budget). A design document only | none |
 
