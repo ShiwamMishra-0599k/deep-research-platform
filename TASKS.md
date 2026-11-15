@@ -7,7 +7,7 @@ Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 | # | Milestone | Status |
 |---|---|---|
 | 1 | Release readiness: rate limiting, DB credentials, CI, frontend tests, cookie sessions | ✅ built and tested locally |
-| 2 | **A. Publish to GitHub** (`release-readiness/ci-validation`), Actions green, repo review | 🟡 blocked: the active `gh` account (ShiwamMishra-0599k) lacks the `workflow` token scope; README/docs prepared. No merge to `main` without explicit authorization |
+| 2 | **A. Publish to GitHub** (`release-readiness/ci-validation`), Actions green, repo review | ✅ pushed (HEAD 7e5a9ff + this note); GitHub Actions run 43697467299 passed all 6 jobs (ruff; security scans; frontend 253 tests; agent 379 tests; backend 353 tests; docker). Branch push trigger added to `ci.yml`. Not merged to `main`: requires explicit authorization. Public-repo review of INTERVIEW_PREP/AI_LEARNING_ROADMAP pending |
 | 3 | AI research quality and evaluation | 🟡 harness built and verified hermetically (16 golden cases, 6 scorers, 14 unit tests, spend-gated live mode, `eval/`); **no real-provider measurement yet**: needs your API keys and an approved spend cap |
 | 4 | Performance and cost optimization (measured, honest benchmarks) | ⬜ |
 | 5 | **B. Production deployment**: **no AWS resource, charge or public deployment without explicit approval of architecture and cost** | 🟡 proposal and reproducible cost model written (`docs/DEPLOYMENT_PROPOSAL.md`, `deploy/aws/cost_estimate.py`): recommended option about 102.60 USD (9,670 INR) per month plus provider usage. **Awaiting your approval and AWS access**; Terraform and deploy scripts are the next prepared (not applied) step |
@@ -40,7 +40,7 @@ Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 - ✅ `python-jose` replaced by PyJWT 2.15.1; react-router 7.18.5; `pip-audit` (backend) has no ignores; `npm audit --omit=dev` = 0
 - ✅ Production configuration fails closed (`ENVIRONMENT=production`): Redis required and `RATE_LIMIT_FAIL_MODE=closed`, HTTPS CORS, Secure cookies, HSTS, strong secrets
 - ✅ AWS Secrets Manager + Redis isolation **plan and example templates only** (`docs/AWS_SECRETS_PLAN.md`, `deploy/`); no AWS resource exists
-- 🟡 CI: workflow validated (actionlint, schema, clean Linux containers) but **never executed on GitHub Actions**: the push is blocked by a missing `workflow` token scope
+- ✅ CI: executed on GitHub Actions, run 43697467299 green (all 6 jobs) on 2026-11-15
 - ✅ Suites last run individually: backend 353, frontend 253, e2e 61, failure 39, multi-instance 17, rotation 19. The research agent's 379 tests and the combined `scripts/ci_local.py` replay were **not re-run after the final changes** (the replay was stopped for low memory)
 
 ## Waiting on you (decisions, in order of leverage)
