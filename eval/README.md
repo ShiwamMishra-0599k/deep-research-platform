@@ -30,3 +30,7 @@ Reports are written to `eval/results/` (git-ignored).
 
 Add cases to `golden.json` (`hermetic: true` only if `e2e/fake_llm.py` can route them). A case that cannot be scored automatically
 belongs under `manual_review`, not in a scorer with a weak heuristic.
+
+## Answer quality (real providers; not run yet)
+
+`quality_set.json` (19 fact-checkable cases), `quality_grading.py` (grade sheets and metrics with 95% intervals) and `cost_model.py` (budget) are described in [`../docs/EVALUATION_PLAN.md`](../docs/EVALUATION_PLAN.md). Run a case file with `--cases quality_set.json`. No score from these exists until you approve credentials and a spending cap.

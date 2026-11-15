@@ -126,6 +126,7 @@ def score_case(case: dict, trace: dict) -> dict:
         "checks": {k: {"ok": ok, "detail": d} for k, (ok, d) in checks.items()},
         "tools": tools_called(trace), "blocks": block_types(trace), "n_sources": len(sources(trace)),
         "latency_s": round(trace["latency_s"], 2), "first_checkpoint_s": trace.get("first_checkpoint_s"),
+        "answer_text": answer_text(trace), "source_urls": sources(trace),   # for graders; results/ is git-ignored
     }
 
 

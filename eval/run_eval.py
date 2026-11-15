@@ -64,6 +64,7 @@ def main() -> int:
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--hermetic", action="store_true", help="only cases the fake LLM can route (plumbing check, not quality)")
     mode.add_argument("--live", action="store_true", help="the whole set against REAL providers (spends money)")
+    ap.add_argument("--cases", default="golden.json", help="case file in eval/ (golden.json | quality_set.json)")
     ap.add_argument("--max-cases", type=int, default=None)
     ap.add_argument("--timeout", type=float, default=180.0)
     ap.add_argument("--out", default=str(HERE / "results"))
@@ -77,7 +78,7 @@ def main() -> int:
         print(f"environment variable {a.key_env} is not set", file=sys.stderr)
         return 2
 
-    cases = json.loads((HERE / "golden.json").read_text(encoding="utf-8"))["cases"]
+    cases = json.loads((HERE / a.cases).read_text(encoding="utf-8"))["cases"]
     if a.hermetic:
         cases = [c for c in cases if c.get("hermetic")]
     if a.max_cases:
