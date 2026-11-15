@@ -15,8 +15,19 @@ class Settings(BaseSettings):
     PORT: int = 8004
     LOG_LEVEL: str = "INFO"
 
+    # Backend -> agent shared secret. Fail closed: if empty, /research returns 503.
+    AGENT_API_KEY: str = ""
+
+    # Request limits
+    MAX_BODY_BYTES: int = 512 * 1024
+    MAX_QUERY_CHARS: int = 4000
+    MAX_HISTORY_ENTRIES: int = 40
+    MAX_HISTORY_CONTENT_CHARS: int = 20000
+    REQUEST_TIMEOUT_SECONDS: float = 240.0
+
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
+    REDIS_SOCKET_TIMEOUT: float = 1.5
 
     # LLM — OpenRouter primary
     OPENROUTER_API_KEY: str = ""

@@ -61,3 +61,15 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Pre-existing markdown-table fallback parser: compact one-line ifs; lambdas are called immediately.
+"src/research_agent/blocks/block_formatter.py" = ["E701", "B023"]

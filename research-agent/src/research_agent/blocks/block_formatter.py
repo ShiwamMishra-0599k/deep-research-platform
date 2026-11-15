@@ -20,6 +20,7 @@ from research_agent.blocks.schemas import (
     MarkdownData,
     ResearchResponse,
 )
+from research_agent.security.sanitize import field as _clean
 
 logger = logging.getLogger(__name__)
 
@@ -94,16 +95,52 @@ def format_blocks(
                 rows=rows,
             )))
 
-    # 5. Collect source URLs
-    for r in tool_results:
-        if r.tool_name in ("web_search", "read_webpage"):
-            sources.extend(_extract_urls(r.output))
+    # 5. Collect source URLs (provenance-checked, see _collect_sources)
+    sources = _collect_sources(tool_results)
 
     return ResearchResponse(
         query=query,
         blocks=blocks,
-        sources=list(dict.fromkeys(sources)),  # deduplicated, order preserved
+        sources=sources,
     )
+
+
+# ── Source provenance ─────────────────────────────────────────
+
+MAX_SOURCES = 12
+_SOURCE_LINE_RE = re.compile(r"^[ \t]*Source:[ \t]*(\S+)[ \t]*$", re.MULTILINE)
+_BAD_URL_CHARS = set(" \t\r\n<>\"'`\\")
+
+
+def _http_url(url: str) -> str | None:
+    """Return url if it is a plain http(s) URL, else None."""
+    if not isinstance(url, str) or len(url) > 2048 or len(url) < 11:
+        return None
+    if not url.startswith(("http://", "https://")) or any(c in _BAD_URL_CHARS for c in url):
+        return None
+    return url
+
+
+def _collect_sources(tool_results: list[ToolResult]) -> list[str]:
+    """Only trust URLs we can attribute: the 'Source:' line of a web_search result,
+    the single URL the agent actually asked read_webpage to open, and Wikipedia's own
+    page link. URLs that merely appear inside fetched page text are ignored, so a
+    malicious page cannot plant links in the Sources list.
+    """
+    found: list[str] = []
+    for r in tool_results:
+        if r.tool_name == "web_search":
+            found.extend(_SOURCE_LINE_RE.findall(r.output))
+        elif r.tool_name == "read_webpage" and not r.output.startswith("Error:"):
+            url = r.input.get("url") if isinstance(r.input, dict) else None
+            if isinstance(url, str):
+                found.append(url)
+        elif r.tool_name == "wiki_search":
+            found.extend(
+                u for u in _SOURCE_LINE_RE.findall(r.output) if u.startswith("https://en.wikipedia.org/")
+            )
+    cleaned = [u for u in (_http_url(u) for u in found) if u]
+    return list(dict.fromkeys(cleaned))[:MAX_SOURCES]
 
 
 # ── Parsers ───────────────────────────────────────────────────
@@ -121,8 +158,8 @@ def _parse_places_to_markers(raw: str) -> list[MapMarker]:
             markers.append(MapMarker(
                 lat=float(parts[2]),
                 lon=float(parts[3]),
-                label=parts[1],
-                popup=parts[4],
+                label=_clean(parts[1], 120),
+                popup=_clean(parts[4], 200),
             ))
         except (ValueError, IndexError):
             continue
@@ -139,11 +176,22 @@ def _parse_places_to_rows(raw: str) -> list[dict]:
         if len(parts) < 5:
             continue
         rows.append({
-            "Name": parts[1],
-            "Address": parts[4] if len(parts) > 4 else "",
-            "Distance": parts[5] if len(parts) > 5 else "",
+            "Name": _clean(parts[1], 120),
+            "Address": _clean(parts[4], 200) if len(parts) > 4 else "",
+            "Distance": _clean(parts[5], 20) if len(parts) > 5 else "",
         })
     return rows
+
+
+_CURRENCY_PREFIX = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥", "CNY": "¥", "AUD": "A$", "CAD": "C$"}
+
+
+def _fmt_price(raw: str) -> str:
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return _clean(raw, 20)
+    return f"{v:,.2f}" if abs(v) >= 1 else f"{v:.6g}"
 
 
 def _parse_financial_card(result: ToolResult) -> InsightItem | None:
@@ -159,36 +207,61 @@ def _parse_financial_card(result: ToolResult) -> InsightItem | None:
             if result.tool_name == "get_stock_price" and line.startswith("STOCK|"):
                 parts = line.split("|")
                 if len(parts) >= 4:
-                    symbol, price, change = parts[1], parts[2], parts[3]
-                    severity = "success" if not change.startswith("-") else "warning"
-                    body_parts = [f"Price: {price}", f"Change: {change}"]
+                    symbol, price, change = _clean(parts[1], 24), _clean(parts[2], 20), _clean(parts[3], 12)
+                    name = _clean(parts[7], 80) if len(parts) > 7 else ""
+                    exchange = _clean(parts[8], 40) if len(parts) > 8 else ""
+                    currency = _clean(parts[9], 8) if len(parts) > 9 else ""
+                    asof = _clean(parts[10], 24) if len(parts) > 10 else ""
+                    if change.startswith("-"):
+                        severity = "warning"
+                    elif change in ("", "n/a"):
+                        severity = "info"
+                    else:
+                        severity = "success"
+                    cur = _CURRENCY_PREFIX.get(currency, f"{currency} " if currency else "")
+                    body_parts = [f"Price: {cur}{price}", f"Change: {change or 'n/a'}"]
                     if len(parts) > 4 and parts[4]:
-                        body_parts.append(f"P/E: {parts[4]}")
-                    if len(parts) > 6:
-                        body_parts.append(f"52w: {parts[5]} – {parts[6]}")
-                    return InsightItem(
-                        title=f"{symbol} Stock Price",
-                        body=" · ".join(body_parts),
-                        severity=severity,
-                    )
+                        body_parts.append(f"P/E: {_clean(parts[4], 12)}")
+                    if len(parts) > 6 and parts[5] and parts[6]:
+                        body_parts.append(f"52w: {cur}{_clean(parts[6], 20)} – {cur}{_clean(parts[5], 20)}")
+                    if exchange:
+                        body_parts.append(f"Exchange: {exchange}")
+                    if asof:
+                        body_parts.append(f"As of: {asof}")
+                    title = f"{name} ({symbol})" if name and name != symbol else f"{symbol} Stock Price"
+                    return InsightItem(title=title, body=" · ".join(body_parts), severity=severity)
 
             elif result.tool_name == "get_forex_rate" and line.startswith("FOREX|"):
                 parts = line.split("|")
                 if len(parts) >= 5:
-                    return InsightItem(
-                        title=f"{parts[1]}/{parts[2]} Exchange Rate",
-                        body=f"1 {parts[1]} = {parts[3]} {parts[2]} (as of {parts[4]})",
-                        severity="info",
-                    )
+                    frm, to, rate, date = (_clean(p, 12) for p in parts[1:5])
+                    body = f"1 {frm} = {rate} {to} (ECB reference rate, {date})"
+                    if len(parts) >= 7 and parts[5] and parts[6] and parts[5] != "1":
+                        body = (
+                            f"{_clean(parts[5], 20)} {frm} = {_clean(parts[6], 24)} {to}"
+                            f" · rate {rate} · ECB reference rate, {date}"
+                        )
+                    return InsightItem(title=f"{frm}/{to} Exchange Rate", body=body, severity="info")
 
             elif result.tool_name == "get_crypto_price" and line.startswith("CRYPTO|"):
                 parts = line.split("|")
                 if len(parts) >= 5:
-                    change = parts[4]
-                    severity = "success" if not change.startswith("-") else "warning"
+                    change = _clean(parts[4], 12)
+                    if change.startswith("-"):
+                        severity = "warning"
+                    elif change in ("", "n/a"):
+                        severity = "info"
+                    else:
+                        severity = "success"
+                    segs = []
+                    if parts[2]:
+                        segs.append(f"₹{_fmt_price(parts[2])}")
+                    if parts[3]:
+                        segs.append(f"${_fmt_price(parts[3])}")
+                    segs.append(f"24h (USD): {change or 'n/a'}")
                     return InsightItem(
-                        title=f"{parts[1].capitalize()} Price",
-                        body=f"₹{parts[2]} · ${parts[3]} · 24h: {change}",
+                        title=f"{_clean(parts[1], 40).capitalize()} Price",
+                        body=" · ".join(segs),
                         severity=severity,
                     )
     except Exception as e:
@@ -375,20 +448,8 @@ def _parse_news_to_rows(raw: str) -> list[dict]:
         if len(parts) < 4:
             continue
         rows.append({
-            "Headline": parts[1],
-            "Source": parts[2],
-            "Published": parts[3],
+            "Headline": _clean(parts[1], 250),
+            "Source": _clean(parts[2], 40),
+            "Published": _clean(parts[3], 40),
         })
     return rows[:10]  # cap at 10 headlines
-
-
-def _extract_urls(output: str) -> list[str]:
-    """Extract clean URLs from tool output, stripping trailing punctuation/numbering."""
-    raw_urls = re.findall(r"https?://[^\s\)\"'<>]+", output)
-    cleaned = []
-    for url in raw_urls:
-        # Strip trailing punctuation that may be part of surrounding text
-        url = re.sub(r"[.,;:!?\\\n]+$", "", url)
-        if url and len(url) > 10:
-            cleaned.append(url)
-    return cleaned

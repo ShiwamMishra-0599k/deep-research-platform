@@ -4,7 +4,6 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 # ── Block data models ─────────────────────────────────────────────────────────
 
 class MarkdownData(BaseModel):
