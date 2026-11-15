@@ -1,0 +1,190 @@
+# Continuous integration for Lumen.
+#
+# Needs NO secrets and NO paid APIs: tests use real PostgreSQL/Redis service containers and mock the LLM and every
+# third-party API. Nothing in this file prints a secret (there are none); the only credentials are the throwaway
+# test-database values below, valid only inside the job's own service container.
+#
+# Third-party actions are pinned to the commit of their latest official release (tag shown in the comment); Dependabot
+# (.github/dependabot.yml) proposes updates. Everything here is mirrored by `python scripts/ci_local.py`.
+#
+# Not run in CI: the browser end-to-end suites in e2e/ (they need Edge/Chrome and Docker-managed outages);
+# see TEST_PLAN.md.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  backend:
+    name: Backend tests (PostgreSQL + Redis)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lumen_test
+          POSTGRES_PASSWORD: lumen_test
+          POSTGRES_DB: lumen_test
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U lumen_test -d lumen_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports: ["56379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Tests (migrations are applied from scratch by the suite; schema drift fails it)
+        working-directory: backend
+        run: python -m pytest -q -p no:cacheprovider
+
+  agent:
+    name: Research agent tests + lint (Redis)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["56379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: research-agent/pyproject.toml
+      - name: Install (editable + the dev dependency group: pytest, ruff; `--group` needs pip >= 25.1)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e research-agent --group research-agent/pyproject.toml:dev
+      - name: Lint
+        working-directory: research-agent
+        run: ruff check src tests
+      - name: "Tests (no real network: non-loopback sockets are blocked by the suite)"
+        working-directory: research-agent
+        run: python -m pytest -q -p no:cacheprovider
+
+  frontend:
+    name: Frontend (TypeScript, build, audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        run: npx vite build
+      - name: Dependency audit (production deps, fail on high/critical)
+        run: npm audit --omit=dev --audit-level=high
+
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ruff==0.17.5
+      - name: ruff (backend, e2e, scripts; the agent is linted in its own job)
+        run: ruff check --config ruff.toml backend e2e scripts
+
+  docker:
+    name: Docker (compose validation + image builds)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      # Placeholders that exist only to satisfy `required` interpolation; not secrets and never used to run anything.
+      JWT_SECRET: ci-only-placeholder-jwt-0123456789abcdef0123456789
+      AGENT_API_KEY: ci-only-placeholder-agent-key
+      POSTGRES_PASSWORD: 0123456789abcdef0123456789abcdef
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate docker-compose.yml (and that it refuses to run without secrets)
+        run: |
+          touch research-agent/.env
+          docker compose config -q
+          if env -u JWT_SECRET -u AGENT_API_KEY -u POSTGRES_PASSWORD docker compose config -q 2>/dev/null; then
+            echo "compose accepted a configuration with no secrets" >&2; exit 1
+          fi
+      - name: Build backend image
+        run: docker build -t lumen-backend:ci backend
+      - name: Build research-agent image
+        run: docker build -t lumen-agent:ci research-agent
+      - name: Images run as a non-root user
+        run: |
+          test "$(docker run --rm --entrypoint id lumen-backend:ci -u)" != "0"
+          test "$(docker run --rm --entrypoint id lumen-agent:ci -u)" != "0"
+
+  security:
+    name: Security scans (bandit, pip-audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install bandit==1.9.4 pip-audit==2.10.1
+      - name: bandit (static analysis)
+        run: bandit -q -r backend/app backend/alembic research-agent/src
+      - name: "pip-audit backend (python-jose PYSEC-2026-4298 is an accepted, documented exception: SECURITY_REVIEW.md)"
+        run: pip-audit -r backend/requirements.txt --no-deps --disable-pip --ignore-vuln PYSEC-2026-4298
+      - name: pip-audit research-agent (resolved dependency set)
+        run: |
+          pip install -e research-agent
+          pip freeze --exclude-editable > /tmp/agent-freeze.txt
+          pip-audit -r /tmp/agent-freeze.txt --no-deps --disable-pip

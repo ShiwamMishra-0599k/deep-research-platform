@@ -1,0 +1,27 @@
+# Proposes updates; humans review and merge. Grouped to keep noise low.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
+  - package-ecosystem: pip
+    directory: /backend
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: /research-agent
+    schedule: { interval: weekly }
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly }
+    # react-router 7 is a deliberate, separately planned major upgrade (see SECURITY_REVIEW.md)
+    ignore:
+      - dependency-name: react-router-dom
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: docker
+    directory: /backend
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /research-agent
+    schedule: { interval: weekly }

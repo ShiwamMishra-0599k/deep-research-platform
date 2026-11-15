@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     )
 
     # Server
-    HOST: str = "0.0.0.0"
+    # Intentional container bind: compose does not publish this port and every endpoint but /health needs the internal token.
+    HOST: str = "0.0.0.0"  # nosec B104
     PORT: int = 8004
     LOG_LEVEL: str = "INFO"
 
