@@ -519,3 +519,133 @@ def test_csrf_tokens_are_session_bound_and_verify_in_constant_time_helpers():
     assert not sessions.csrf_valid(forged, forged, sid1)  # right shape, wrong signature
     assert not sessions.csrf_valid("nodot", "nodot", sid1)
     assert sessions.make_csrf_token(sid1) != sessions.make_csrf_token(sid1)  # fresh randomness each time
+
+
+# ── Scheduled cleanup (app/cleanup.py) ───────────────────────────────────────────────────────────────────────────────
+
+def _seed_sessions(engine_rows, n):
+    clients = [new_client() for _ in range(n)]
+    for c in clients:
+        register(c)
+    ids = [r[0] for r in engine_rows("SELECT id FROM auth_sessions ORDER BY created_at")]
+    assert len(ids) >= n
+    return ids[-n:]
+
+
+def test_cleanup_deletes_only_sessions_that_ended_long_ago(engine_rows):
+    from app import cleanup
+
+    engine_rows("DELETE FROM auth_sessions")
+    live, old_abs, old_idle, old_revoked, new_revoked, recent_abs = _seed_sessions(engine_rows, 6)
+    engine_rows(f"UPDATE auth_sessions SET absolute_expires_at = now() - interval '8 days' WHERE id = '{old_abs}'")
+    engine_rows(f"UPDATE auth_sessions SET idle_expires_at = now() - interval '8 days' WHERE id = '{old_idle}'")
+    engine_rows(f"UPDATE auth_sessions SET revoked_at = now() - interval '8 days', revoked_reason='logout' WHERE id = '{old_revoked}'")
+    engine_rows(f"UPDATE auth_sessions SET revoked_at = now() - interval '1 hour', revoked_reason='logout' WHERE id = '{new_revoked}'")
+    engine_rows(f"UPDATE auth_sessions SET absolute_expires_at = now() - interval '2 days' WHERE id = '{recent_abs}'")
+
+    assert cleanup.purge_ended_sessions() == 3
+    left = {str(r[0]) for r in engine_rows("SELECT id FROM auth_sessions")}
+    assert left == {str(live), str(new_revoked), str(recent_abs)}
+    assert cleanup.purge_ended_sessions() == 0          # idempotent
+
+
+def test_cleanup_never_removes_a_working_session(engine_rows):
+    from app import cleanup
+
+    c = new_client()
+    register(c)
+    engine_rows("UPDATE auth_sessions SET last_used_at = now() - interval '30 days'")   # old activity alone does not matter
+    assert cleanup.purge_ended_sessions(retention_days=1) == 0
+    assert c.get("/api/auth/me").status_code == 200
+
+
+def test_cleanup_runs_in_batches(engine_rows):
+    from app import cleanup
+
+    engine_rows("DELETE FROM auth_sessions")
+    ids = _seed_sessions(engine_rows, 5)
+    engine_rows("UPDATE auth_sessions SET absolute_expires_at = now() - interval '9 days'")
+    assert cleanup.purge_ended_sessions(batch=2) == len(ids)
+    assert engine_rows("SELECT count(*) FROM auth_sessions")[0][0] == 0
+
+
+def test_cleanup_skips_when_another_pass_holds_the_lock(engine_rows):
+    from sqlalchemy import text
+
+    from app import cleanup
+    from app.db import engine
+
+    engine_rows("DELETE FROM auth_sessions")
+    _seed_sessions(engine_rows, 1)
+    engine_rows("UPDATE auth_sessions SET absolute_expires_at = now() - interval '9 days'")
+    with engine.connect() as other:
+        assert other.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": cleanup._LOCK_ID}).scalar()
+        try:
+            assert cleanup.purge_ended_sessions() is None                       # skipped, nothing deleted
+            assert engine_rows("SELECT count(*) FROM auth_sessions")[0][0] == 1
+        finally:
+            other.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": cleanup._LOCK_ID})
+            other.commit()
+    assert cleanup.purge_ended_sessions() == 1                                  # lock was released: now runs
+
+
+def test_cleanup_cli_returns_zero_and_logs_count(engine_rows, caplog):
+    from app import cleanup
+
+    engine_rows("DELETE FROM auth_sessions")
+    with caplog.at_level("INFO", logger="lumen.cleanup"):
+        assert cleanup.main() == 0
+    assert "removed 0 ended session row(s)" in caplog.text
+
+
+def test_cleanup_loop_survives_a_failed_pass_and_is_cancellable(monkeypatch):
+    import asyncio
+
+    from app import cleanup
+
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("db down")
+
+    monkeypatch.setattr(cleanup, "run_once", flaky)
+
+    async def go():
+        t = asyncio.create_task(cleanup.purge_loop(0))
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if len(calls) >= 2:
+                break
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(go())
+    assert len(calls) >= 2        # the first pass raised; the loop kept going
+
+
+def test_purge_settings_are_validated(monkeypatch):
+    import pytest
+
+    from app.config import Settings
+
+    base = dict(jwt_secret="x" * 40, csrf_secret="y" * 40, agent_api_key="z" * 20)
+    assert Settings(**base).session_purge_retention_days == 7      # positive control: the baseline itself is valid
+    with pytest.raises(ValueError, match="SESSION_PURGE"):
+        Settings(**base, session_purge_retention_days=0)
+    with pytest.raises(ValueError, match="SESSION_PURGE"):
+        Settings(**base, session_purge_interval_seconds=-1)
+
+
+def test_cleanup_leaves_no_advisory_lock_behind_over_repeated_passes(engine_rows):
+    """Regression: the lock used to leak when released on a different pooled connection, skipping every later pass."""
+    from app import cleanup
+
+    for _ in range(25):
+        assert cleanup.purge_ended_sessions() is not None
+    held = engine_rows("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=%d AND granted" % cleanup._LOCK_ID)[0][0]
+    assert held == 0

@@ -8,10 +8,10 @@
 
 | Stage | Status |
 |---|---|
-| 1-2 Backend (migration 0003, cookies, CSRF, Origin check, refresh/logout/logout-all/upgrade, dual mode) | **Done** - 353 backend tests (sessions, CSRF, config, auth) |
+| 1-2 Backend (migration 0003, cookies, CSRF, Origin check, refresh/logout/logout-all/upgrade, dual mode) | **Done** - 361 backend tests (sessions, CSRF, config, auth, cleanup) |
 | 3 Frontend cookie flow + e2e | **Done** - 253 frontend tests (99.7 % statements); browser e2e 61/61 including real cookie-jar flags, cross-site CSRF/login-CSRF attacker page, revocation, replay of a copied cookie, expiry + silent refresh, legacy-session upgrade |
 | 4 Cookie-only (`AUTH_MODE=cookie`, drop Bearer and body token) | **Not done** - deliberately after the migration window; legacy Bearer tokens cannot be revoked before their 24 h expiry |
-| 5 Hardening (CSP/HSTS on the hosting layer, cleanup job for expired sessions, "active sessions" UI, security-event alerting) | **Not done** (`purge_expired_sessions` exists but is not scheduled) |
+| 5 Hardening | **Partly done:** expired-session cleanup is implemented and tested (`app/cleanup.py`, section 12). **Not done:** CSP/HSTS at the hosting layer, "active sessions" UI, security-event alerting |
 
 ## 1. Why, and when
 
@@ -268,3 +268,32 @@ Each stage is independently revertible by redeploying the previous build and/or 
 - That Starlette's `CORSMiddleware` emits `Vary: Origin` in every credentialed case — to be asserted by test case 7, not assumed.
 - Whether the parent's in-progress Redis rate limiter changes will expose a stable per-request client-IP resolver to reuse for `ip_hash` and `/refresh` limits (the plan assumes it will).
 - Production hosting layout (no reverse-proxy config exists in the repository).
+
+## 12. Expired-session cleanup (implemented)
+
+`auth_sessions` rows were never deleted. `backend/app/cleanup.py` now removes a row once its session **ended** (earliest of absolute expiry, idle expiry, revocation time) more than `SESSION_PURGE_RETENTION_DAYS` (default 7) ago. Live sessions are never touched; recent dead rows stay for a week as reuse-detection evidence.
+
+* In-process loop: the API runs a pass every `SESSION_PURGE_INTERVAL_SECONDS` (default 3600; `0` disables; not started in `AUTH_MODE=bearer`). The first pass runs about a minute after start.
+* One-shot: `python -m app.cleanup` (exit 0 on success) for cron or a scheduled container/ECS task. If you use that instead, set the interval to `0`.
+* Several replicas are safe: a PostgreSQL advisory lock admits one pass at a time (others log "skipped"), deletes are batched at 1000 rows, and the delete is idempotent. The lock is taken on a dedicated connection; releasing it on a pooled one leaked it during development, and a regression test now checks `pg_locks`.
+* Tested (9 tests in `test_sessions.py`): only long-dead rows go (absolute, idle and revoked each), live and recently ended rows stay, a working session survives, batching, lock contention skips and then recovers, no lock left behind over 25 passes, the CLI, a failing pass does not stop the loop, settings validation. Mutating the "earliest of" rule to "latest" makes the main test fail. **Not tested:** behaviour on a table with millions of rows (batched deletes should hold up; not measured).
+
+## 13. Runbook: dual to cookie-only (stage 4). Not executed; nothing switches by itself
+
+The default stays `AUTH_MODE=dual`. Nothing in this repository changes the mode; an operator sets it.
+
+**What the switch does:** Bearer tokens are rejected, the login/register body no longer carries a token, and `/auth/session/upgrade` returns 404. **Cookie sessions keep working untouched**: the session rows, cookies and user data are the same in both modes, so existing cookie users notice nothing.
+
+**Who is affected:** only a browser still holding a pre-migration `localStorage` token that has not opened the new frontend since. Such a token lives at most 24 h, and the new frontend upgrades it to a cookie session on first load while the mode is `dual`. After the switch that user signs in once. No data is lost.
+
+**Preconditions (all must hold):**
+1. The new frontend has been live for at least 48 h (two token lifetimes), so every active browser has loaded it and upgraded. After that no legitimate client sends a Bearer token.
+2. API clients that use Bearer on purpose (scripts, tests, anything outside the web app) are identified and moved, or the owner accepts they stop working. None are known in this repository.
+3. `COOKIE_SECURE=true` behind HTTPS in production (already enforced by the production validator), and `CSRF_SECRET` set.
+4. No Bearer-authenticated request in the logs for the last 24 h. **Gap:** the backend has no counter for Bearer-authenticated requests today. Before the switch, add a log line or metric for `ctx.via == "bearer"` and watch it reach zero. I have not added it yet because it needs a decision on log volume.
+
+**Steps:** (a) deploy this backend and frontend still in `dual`; (b) wait out precondition 1 and confirm precondition 4; (c) take a database snapshot (rollback does not need it, this is routine); (d) set `AUTH_MODE=cookie` and restart the backend (config is read at start); (e) check that `/health/ready` is ready, a login sets `lumen_at`/`lumen_rt`/`lumen_csrf`, a Bearer call returns 401, an existing browser session still works, and logout revokes.
+
+**Rollback:** set `AUTH_MODE=dual` and restart. Cookie sessions are unaffected; the body token returns for clients that ask for it. Backend first, frontend second, as in section 9.
+
+**Do not** switch while any of the preconditions is unconfirmed. Switching is a configuration change, so it needs your explicit go-ahead at the time.

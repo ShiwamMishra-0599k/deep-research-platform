@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -8,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
+from .cleanup import purge_loop
 from .config import settings
 from .db import engine
 from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, SecurityHeadersMiddleware
@@ -25,7 +27,14 @@ async def lifespan(_app: FastAPI):
         log.info("rate limiting: %s", "Redis (shared across instances)" if backend.warm() else "Redis unreachable at start; using the fallback")
     else:
         log.warning("rate limiting: REDIS_URL is not set; limits are per process only")
-    yield
+    purge = None
+    if settings.auth_mode != "bearer" and settings.session_purge_interval_seconds > 0:
+        purge = asyncio.create_task(purge_loop(settings.session_purge_interval_seconds))
+    try:
+        yield
+    finally:
+        if purge:
+            purge.cancel()
 
 
 # No interactive docs/OpenAPI in the running service: it would publish the whole API surface.

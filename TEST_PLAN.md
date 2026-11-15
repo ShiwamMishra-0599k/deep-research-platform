@@ -6,7 +6,7 @@ What is tested, how, against what, and — just as important — what is **not**
 
 | Level | Suite | Count | PostgreSQL | Redis | Agent | LLM | External sites |
 |---|---|---|---|---|---|---|---|
-| Backend unit + API | `backend/tests` | **353** | **real** (isolated container) | **real** (limits, db 3) | scripted fake | – | – |
+| Backend unit + API | `backend/tests` | **361** | **real** (isolated container) | **real** (limits, db 3) | scripted fake | – | – |
 | Agent unit + service | `research-agent/tests` | **379** | – | **real** (isolated) + dead/hanging cases | real code, fake `get_agent` for SSE | mocked | mocked; non-loopback sockets blocked |
 | Full-stack integration (browser) | `e2e/run.py` → `scenario.mjs` | **61** checks | **real** | **real** | **real** (LangGraph + 8 tools) | **fake server** (`e2e/fake_llm.py`) | **faked** (`e2e/run_agent_fake_internet.py`), sealed at socket level |
 | Failure & recovery | `e2e/failure_tests.py` | **39** checks | **real**, container stopped/started | **real**, stopped/started | **real**, killed/relaunched; plus a rogue agent | fake | faked, sealed |
@@ -22,7 +22,7 @@ sites**. They are not tests of live providers.
 
 ## 2. Suites in detail
 
-**Backend (353; was 144, then 230 after rate limiting, then +123 for cookie sessions and production configuration):** the cookie/session suites are `test_sessions` (rotation compare-and-swap, reuse detection, grace window, idle/absolute expiry, revocation), `test_csrf` (missing/forged/other-session tokens, Origin and `Sec-Fetch-Site` rules, Bearer-present-but-bad never falls back, `AUTH_MODE` matrix, cookie flags) and `cookie_helpers`; `test_config` covers the production validator (fail-closed Redis, HTTPS-only CORS, Secure cookies, secret strength, DB URL from components); `test_deploy_templates` validates the AWS/nginx templates. JWT forgery tests run on PyJWT. Original suites: `test_auth` 48 (registration, validation, duplicate/case, concurrency race, login, timing-equal responses,
+**Backend (361; was 144, then 230 after rate limiting, then +123 for cookie sessions and production configuration):** the cookie/session suites are `test_sessions` (rotation compare-and-swap, reuse detection, grace window, idle/absolute expiry, revocation), `test_csrf` (missing/forged/other-session tokens, Origin and `Sec-Fetch-Site` rules, Bearer-present-but-bad never falls back, `AUTH_MODE` matrix, cookie flags) and `cookie_helpers`; `test_config` covers the production validator (fail-closed Redis, HTTPS-only CORS, Secure cookies, secret strength, DB URL from components); `test_deploy_templates` validates the AWS/nginx templates. JWT forgery tests run on PyJWT. Original suites: `test_auth` 48 (registration, validation, duplicate/case, concurrency race, login, timing-equal responses,
 IP throttle, lockout, token expiry/forgery incl. `alg:none`/wrong aud/iss/HS512/tampered, query-token rejection, secret strength);
 `test_conversations` 20 (CRUD, ownership/IDOR on every route, cross-user history isolation, cascade, SQL-injection strings);
 `test_http_security` 15 (headers, 413 declared/streamed, CORS, no docs, no leaks); `test_research_sse` 28 (framing, ordering,

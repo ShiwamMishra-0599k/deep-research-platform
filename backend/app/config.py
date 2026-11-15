@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     session_idle_hours: int = 24              # sliding inactivity timeout, extended at every refresh
     session_absolute_days: int = 7            # hard cap on a session, whatever the activity
     refresh_reuse_grace_seconds: int = 10     # a just-rotated token seen again inside this window = concurrent tab, not theft
+    # Housekeeping for the auth_sessions table. Rows are kept this long after the session ended (reuse-detection evidence).
+    session_purge_retention_days: int = 7
+    # In-process purge loop period. 0 disables it (use `python -m app.cleanup` from cron / a scheduled task instead).
+    session_purge_interval_seconds: int = 3600
     cookie_secure: bool = False               # true in production: Secure flag + __Host-/__Secure- name prefixes
     cookie_samesite: str = "lax"              # access + CSRF cookies. The refresh cookie is always Strict.
     # Signs CSRF tokens. Distinct from jwt_secret. REQUIRED whenever auth_mode != "bearer".
@@ -171,6 +175,8 @@ class Settings(BaseSettings):
     def _check_sessions(self) -> "Settings":
         if self.access_token_minutes < 1 or self.session_idle_hours < 1 or self.session_absolute_days < 1:
             raise ValueError("session lifetimes must be positive")
+        if self.session_purge_retention_days < 1 or self.session_purge_interval_seconds < 0:
+            raise ValueError("SESSION_PURGE_RETENTION_DAYS must be >= 1 and SESSION_PURGE_INTERVAL_SECONDS >= 0")
         if self.auth_mode == "bearer":
             return self
         s = self.csrf_secret

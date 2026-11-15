@@ -36,12 +36,12 @@ Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 ## Milestone: CI validation, frontend tests, cookie sessions
 
 - ✅ Frontend test stack (Vitest, jsdom, Testing Library): 253 tests, coverage 99.7 / 94.73 / 100 / 99.7, thresholds 70/60/70/70 enforced in CI (Node >= 22)
-- ✅ HttpOnly-cookie sessions, stages 1-3 (`AUTH_MODE=dual`): 15 min access, rotating refresh (7 days max, 24 h idle), reuse detection, server-side revocation, CSRF token + Origin check, same-origin topology. 353 backend tests; browser e2e 61/61
+- ✅ HttpOnly-cookie sessions, stages 1-3 (`AUTH_MODE=dual`): 15 min access, rotating refresh (7 days max, 24 h idle), reuse detection, server-side revocation, CSRF token + Origin check, same-origin topology. 361 backend tests; browser e2e 61/61
 - ✅ `python-jose` replaced by PyJWT 2.15.1; react-router 7.18.5; `pip-audit` (backend) has no ignores; `npm audit --omit=dev` = 0
 - ✅ Production configuration fails closed (`ENVIRONMENT=production`): Redis required and `RATE_LIMIT_FAIL_MODE=closed`, HTTPS CORS, Secure cookies, HSTS, strong secrets
 - ✅ AWS Secrets Manager + Redis isolation **plan and example templates only** (`docs/AWS_SECRETS_PLAN.md`, `deploy/`); no AWS resource exists
 - ✅ CI: executed on GitHub Actions, run 43697467299 green (all 6 jobs) on 2026-11-15
-- ✅ Suites last run individually: backend 353, frontend 253, e2e 61, failure 39, multi-instance 17, rotation 19. The research agent's 379 tests and the combined `scripts/ci_local.py` replay were **not re-run after the final changes** (the replay was stopped for low memory)
+- ✅ Suites last run individually on 2026-11-15: backend 361, frontend 253, agent 379, e2e 61 (earlier run), failure 39, multi-instance 17, rotation 19 (earlier runs); staged `scripts/ci_local.py` replay green; GitHub Actions green (run 43697467299 and later)
 
 ## Waiting on you (decisions, in order of leverage)
 
@@ -53,7 +53,7 @@ Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 ## Next engineering milestone (recommended order)
 
 1. ⬜ Execute CI on GitHub; fix findings; add branch protection requiring it
-2. ⬜ Schedule `purge_expired_sessions` (it exists but nothing calls it, so expired `auth_sessions` rows accumulate)
+2. ✅ Expired-session cleanup scheduled and tested (`app/cleanup.py`, 9 tests, advisory-lock leak found and fixed on the way); stage-4 runbook written (`docs/COOKIE_AUTH_MIGRATION_PLAN.md` section 13), mode not switched; needs a Bearer-usage counter first
 3. ⬜ Account lifecycle: email verification, password reset, account/data deletion, retention policy
 4. ⬜ Per-user quotas (conversation count, storage) and per-user LLM budget
 5. ⬜ Deployment: TLS proxy with `TRUSTED_PROXY_CIDRS` set, strict CSP/headers for the static frontend, image scanning + digest pinning
