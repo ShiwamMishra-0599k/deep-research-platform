@@ -297,3 +297,20 @@ The default stays `AUTH_MODE=dual`. Nothing in this repository changes the mode;
 **Rollback:** set `AUTH_MODE=dual` and restart. Cookie sessions are unaffected; the body token returns for clients that ask for it. Backend first, frontend second, as in section 9.
 
 **Do not** switch while any of the preconditions is unconfirmed. Switching is a configuration change, so it needs your explicit go-ahead at the time.
+
+## 14. Verification matrix (fresh run on 2026-11-15, after the authentication and database-session changes)
+
+Backend 364 tests passed; browser end-to-end 61/61; failure injection 39/39; multi-instance 17/17 (**15/17 on the first run**, 17/17 on the immediate rerun; the two misses were one extra request passing the shared IP limit while the logs show the Redis 0.25 s timeout falling back to local limits on a machine short of memory. The limiter code was not changed. Not proven to be the sole cause).
+
+| Requirement | Evidence (test names in `backend/tests/` unless stated) | Not covered |
+|---|---|---|
+| Access-token expiry | `test_access_token_expiry_is_recovered_by_refresh`; e2e "reload after the access cookie expired stays signed in (silent refresh)" | |
+| Refresh rotation | `test_refresh_rotates_the_token_and_issues_new_cookies`, `test_the_new_refresh_token_keeps_working_across_many_rotations`; e2e "refresh token ROTATED" | |
+| Logout and logout-all revocation | `test_logout_revokes_and_old_cookies_are_dead`, `test_logout_all_revokes_every_session_of_the_user`, `test_other_sessions_survive_a_single_logout`, `test_logout_is_idempotent_and_never_errors`; compose smoke test (logout 204 then `/me` 401) | Revoking a legacy Bearer token before its 24 h expiry is impossible by design |
+| CSRF | `test_logout_requires_csrf_when_a_session_exists`, `test_logout_all_requires_csrf_for_cookie_auth`, `test_csrf.py`; e2e cross-site attacker page; compose smoke test (403 without the token) | |
+| Origin validation | `test_cross_origin_state_changing_requests_are_rejected_even_with_valid_cookie_and_csrf`, `test_origin_check_applies_to_bearer_requests_too`, CORS preflight tests | |
+| Session expiry | `test_idle_expiry_ends_the_session`, `test_absolute_expiry_ends_the_session_even_when_active`, `test_refresh_slides_idle_expiry_but_never_past_the_absolute_cap` | |
+| Refresh-token replay | `test_reuse_detection_revokes_the_whole_session_immediately`, `test_replaying_a_rotated_token_inside_the_grace_window_is_409_and_does_not_revoke`; compose smoke test (replay after grace 401 then session dead) | |
+| Concurrent refresh (multi-tab) | `test_concurrent_refresh_with_the_same_token_has_exactly_one_winner`; frontend single-flight refresh and BroadcastChannel logout unit tests | **Several real browser tabs racing**: not tested |
+| Reload behaviour | e2e: reload restores the conversation; reload after access-cookie expiry stays signed in | |
+| Expired-session cleanup | 9 tests in `test_sessions.py` (section 12) | A table with millions of rows |

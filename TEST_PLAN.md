@@ -91,6 +91,8 @@ Re-run 2026-11-15 on the cookie-session stack (project `lumen-verify`, throwaway
 
 Local CI replay, one stage at a time (low-memory machine; `python scripts/ci_local.py <stage>`), all on 2026-11-15 against HEAD d264823: lint 3/3, security 3/3, agent 5/5 (379 tests, lockfiles reproducible), backend 353 passed, frontend 4/4 (tsc, build, 253 tests with coverage gate, prod audit 0), docker 6/6. GitHub Actions run 43697467299 passed the same six jobs.
 
+Re-run 2026-11-15 after the pool/authentication changes (HEAD b1f8e29): backend 364 passed; agent 379; frontend 253; browser e2e 61/61; failure suite 39/39; multi-instance 15/17 first run then 17/17 on rerun (see `docs/COOKIE_AUTH_MIGRATION_PLAN.md` section 14 for the two misses). Load, shutdown and ARM64 results are in `docs/PERFORMANCE.md`; the rotation rehearsal (19) was not re-run because nothing it touches changed.
+
 ## 5. Requirements coverage (PRD §6)
 
 F1 auth ✔ (backend + browser) · F2 conversations ✔ · F3 streaming progress ✔ (browser) · F4 eight tools ✔ (mocked upstreams; live shapes spot-checked once) ·
