@@ -16,7 +16,47 @@ blocks (markdown, tables, maps, metric cards). React frontend, FastAPI backend, 
 Documentation: [`PRD.md`](PRD.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`research-agent/ARCHITECTURE.md`](research-agent/ARCHITECTURE.md) ·
 [`DESIGN.md`](DESIGN.md) · [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) · [`TEST_PLAN.md`](TEST_PLAN.md) · [`TASKS.md`](TASKS.md) · [`AGENTS.md`](AGENTS.md)
 
-Plans awaiting your approval (nothing in them is implemented): [`docs/FRONTEND_TESTING_PLAN.md`](docs/FRONTEND_TESTING_PLAN.md) · [`docs/COOKIE_AUTH_MIGRATION_PLAN.md`](docs/COOKIE_AUTH_MIGRATION_PLAN.md). Operations: [`docs/DB_CREDENTIALS.md`](docs/DB_CREDENTIALS.md).
+Implemented and documented: [`docs/FRONTEND_TESTING_PLAN.md`](docs/FRONTEND_TESTING_PLAN.md) · [`docs/COOKIE_AUTH_MIGRATION_PLAN.md`](docs/COOKIE_AUTH_MIGRATION_PLAN.md).
+Operations and plans: [`docs/DB_CREDENTIALS.md`](docs/DB_CREDENTIALS.md) · [`docs/AWS_SECRETS_PLAN.md`](docs/AWS_SECRETS_PLAN.md) (a plan; no AWS resources exist).
+
+## What it does
+
+- **Cited research answers.** The agent plans, calls tools, reads sources and returns structured blocks: markdown, sortable tables, maps, metric cards, plus Sources and follow-up suggestions. Unknown block types fall back to a JSON view instead of breaking the page.
+- **Live progress.** Every tool call streams to the browser as a checkpoint over Server-Sent Events, with Stop, error and retry states.
+- **Eight tools:** `web_search` (Exa, then Tavily, then DuckDuckGo), `read_webpage` (Jina Reader or an SSRF-guarded fetch, HTML or PDF), `wiki_search`, `nearby_places` (Nominatim and Overpass), `latest_news` (Indian news RSS), `get_stock_price` (yfinance), `get_forex_rate` (Frankfurter) and `get_crypto_price` (CoinGecko).
+- **Accounts and history.** Registration, login, per-user conversations persisted in PostgreSQL, with cross-user access returning 404.
+- **Security by design.** HttpOnly-cookie sessions with CSRF protection, Redis-backed distributed rate limiting that fails closed in production, an SSRF guard, prompt-injection handling and fixed error messages. Details in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
+
+## Technology
+
+| Layer | Stack |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, Tailwind, Zustand, Framer Motion, Leaflet; Vitest + Testing Library |
+| Backend | FastAPI, SQLAlchemy 2, Alembic, PyJWT, bcrypt, Redis (rate limits) |
+| Agent | FastAPI, Deep Agents / LangGraph, OpenRouter or OpenAI, Redis (tool cache) |
+| Data | PostgreSQL 16, Redis 7 |
+| Delivery | Docker Compose, GitHub Actions (written and validated locally, see status below) |
+
+## Screenshots
+
+These come from the automated integration harness, which uses a **fake LLM and fake third-party data** (the sources, prices and the throwaway test account are synthetic). They show the real UI, not real research output.
+
+![Welcome screen](docs/screenshots/welcome.png)
+![Answer with map, table, metric card, sources and follow-ups](docs/screenshots/answer.png)
+
+## Verification status (what is and is not proven)
+
+| Claim | Evidence |
+|---|---|
+| Backend behaviour, auth, sessions, CSRF, rate limits | 353 tests against real PostgreSQL and Redis (local) |
+| Frontend behaviour | 253 tests, 99.7% statement coverage, enforced thresholds (local) |
+| Full stack in a real browser | 61-check scenario with a fake LLM and fake web (local, Edge only) |
+| Outages, multiple replicas, credential rotation | 39, 17 and 19 checks (local) |
+| GitHub Actions | **Not yet executed on GitHub.** Validated with actionlint, schema checks and clean Linux containers |
+| Real LLM and search quality | **Not measured yet** (planned evaluation milestone) |
+| Production deployment, TLS, backups, cost, load | **Not done.** Plans and templates only |
+
+No users, traffic, revenue or performance figures are claimed: none exist.
 
 ## Quick start (Docker)
 
@@ -129,6 +169,16 @@ fail-local/fail-closed on Redis outage, trusted-proxy-aware), no default or weak
 security headers and body limits, an internal-token-protected agent that is not published, an SSRF guard for all fetched URLs,
 untrusted-content handling for prompt injection, and reproducible migrations. Open items and accepted risks are listed honestly
 in [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md).
+
+## Known limitations
+
+- Not deployed anywhere; TLS, backups and monitoring are plans, not running systems.
+- Research quality against real providers has not been evaluated; the test suites use a fake LLM.
+- Production should move to `AUTH_MODE=cookie` after the migration window; legacy Bearer tokens cannot be revoked before they expire (24 h).
+- No email verification, password reset, account deletion or per-user quotas.
+- Expired session rows are not purged yet; indexes and retention need a scheduled job.
+- Prompt injection is mitigated, not solved; search and LLM providers see user queries.
+- Only Chromium (Edge) was driven in browser tests; no screen-reader or real-device testing.
 
 ## Development tips
 

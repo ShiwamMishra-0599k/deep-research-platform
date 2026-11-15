@@ -2,6 +2,17 @@
 
 Legend: ✅ done and verified · 🟡 partly done · ⬜ open
 
+## Master checklist (owner-approved sequence)
+
+| # | Milestone | Status |
+|---|---|---|
+| 1 | Release readiness: rate limiting, DB credentials, CI, frontend tests, cookie sessions | ✅ built and tested locally |
+| 2 | **A. Publish to GitHub** (`release-readiness/ci-validation`), Actions green, repo review | 🟡 blocked: the active `gh` account (ShiwamMishra-0599k) lacks the `workflow` token scope; README/docs prepared. No merge to `main` without explicit authorization |
+| 3 | AI research quality and evaluation (golden questions, citation checks, real-provider runs) | ⬜ |
+| 4 | Performance and cost optimization (measured, honest benchmarks) | ⬜ |
+| 5 | **B. Production deployment**: design, IaC and cost estimate prepared first; **no AWS resource, charge or public deployment without explicit approval of architecture and cost** | ⬜ design not yet presented |
+| 6 | **C. Portfolio launch**: case study, diagrams, real screenshots, demo script, benchmarks | ⬜ (after deployment validation) |
+
 ## Milestone: backend, agent and integration security (this change set)
 
 - ✅ Frontend redesign verified and checkpointed (`11ad263`); design frozen
