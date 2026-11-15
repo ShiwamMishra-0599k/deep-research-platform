@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,13 +11,25 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from .config import settings
 from .db import engine
 from .middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
+from .ratelimit import RateLimitUnavailable, get_backend
 from .routers import auth, conversations, research
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Connect to Redis and load the rate-limit scripts before the first request (never fails startup).
+    backend = get_backend()
+    if backend.enabled:
+        log.info("rate limiting: %s", "Redis (shared across instances)" if backend.warm() else "Redis unreachable at start; using the fallback")
+    else:
+        log.warning("rate limiting: REDIS_URL is not set; limits are per process only")
+    yield
+
+
 # No interactive docs/OpenAPI in the running service: it would publish the whole API surface.
-app = FastAPI(title="Lumen Backend", version="2.1.0", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="Lumen Backend", version="2.1.0", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 # Outermost last: size limit runs before routing, headers wrap every response (incl. errors).
 app.add_middleware(BodySizeLimitMiddleware)
@@ -41,6 +54,13 @@ async def _db_unavailable(request: Request, exc: OperationalError) -> JSONRespon
 async def _db_error(request: Request, exc: SQLAlchemyError) -> JSONResponse:
     log.exception("database error on %s %s", request.method, request.url.path)
     return JSONResponse({"detail": "Internal server error"}, status_code=500)
+
+
+@app.exception_handler(RateLimitUnavailable)
+async def _limits_unavailable(request: Request, exc: RateLimitUnavailable) -> JSONResponse:
+    # RATE_LIMIT_FAIL_MODE=closed and Redis is down: refuse rather than run unlimited.
+    log.error("rate-limit store unavailable and fail mode is 'closed': refusing %s %s", request.method, request.url.path)
+    return JSONResponse({"detail": "Service temporarily unavailable"}, status_code=503, headers={"Retry-After": "5"})
 
 
 @app.exception_handler(RequestValidationError)
@@ -71,7 +91,8 @@ def ready() -> JSONResponse:
     except Exception as e:  # noqa: BLE001
         log.error("readiness check failed: %s", type(e).__name__)
         return JSONResponse({"status": "unavailable", "database": "error"}, status_code=503)
-    return JSONResponse({"status": "ready", "database": "ok"})
+    # Redis trouble degrades limiting to per-process (see ratelimit.py) but does not make the service unready.
+    return JSONResponse({"status": "ready", "database": "ok", "rate_limit": get_backend().status})
 
 
 app.include_router(auth.router)

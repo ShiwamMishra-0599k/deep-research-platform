@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..client_ip import client_ip
 from ..config import settings
 from ..db import get_db
 from ..deps import get_current_user
@@ -15,13 +16,9 @@ from ..security import hash_password, issue_token, verify_dummy, verify_password
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-login_ip_limiter = SlidingWindowLimiter(settings.login_per_ip_per_minute, 60)
-register_ip_limiter = SlidingWindowLimiter(settings.register_per_ip_per_hour, 3600)
-login_lockout = FailureLockout(settings.login_failures_per_email, settings.login_lockout_seconds)
-
-
-def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+login_ip_limiter = SlidingWindowLimiter("login-ip", settings.login_per_ip_per_minute, 60)
+register_ip_limiter = SlidingWindowLimiter("register-ip", settings.register_per_ip_per_hour, 3600)
+login_lockout = FailureLockout("login-email", settings.login_failures_per_email, settings.login_lockout_seconds)
 
 
 def _too_many(retry_after: int, detail: str = "Too many attempts. Try again later.") -> HTTPException:
@@ -32,9 +29,9 @@ def _too_many(retry_after: int, detail: str = "Too many attempts. Try again late
 
 @router.post("/register", response_model=AuthResponse)
 def register(req: RegisterRequest, request: Request, db: Session = Depends(get_db)) -> AuthResponse:
-    ip = _client_ip(request)
-    if not register_ip_limiter.allow(ip):
-        raise _too_many(register_ip_limiter.retry_after(ip))
+    decision = register_ip_limiter.hit(client_ip(request))
+    if not decision.allowed:
+        raise _too_many(decision.retry_after)
 
     email = req.email.lower().strip()
     if db.query(User).filter(User.email == email).one_or_none():
@@ -53,9 +50,9 @@ def register(req: RegisterRequest, request: Request, db: Session = Depends(get_d
 
 @router.post("/login", response_model=AuthResponse)
 def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)) -> AuthResponse:
-    ip = _client_ip(request)
-    if not login_ip_limiter.allow(ip):
-        raise _too_many(login_ip_limiter.retry_after(ip))
+    decision = login_ip_limiter.hit(client_ip(request))
+    if not decision.allowed:
+        raise _too_many(decision.retry_after)
 
     email = req.email.lower().strip()
     if login_lockout.is_locked(email):

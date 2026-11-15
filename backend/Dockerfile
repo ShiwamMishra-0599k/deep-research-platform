@@ -22,4 +22,4 @@ USER lumen
 EXPOSE 8080
 
 # Apply migrations (idempotent, advisory-locked), then serve. A failed migration stops the container.
-CMD ["sh", "-c", "python -m app.migrate && exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --proxy-headers"]
+CMD ["sh", "-c", "python -m app.migrate && exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --no-proxy-headers"]

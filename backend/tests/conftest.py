@@ -26,9 +26,16 @@ assert (_url.database or "").endswith("_test"), "test database name must end in 
 
 # Must be set BEFORE the app (and its settings) are imported.
 os.environ["DATABASE_URL"] = TEST_DB_URL
+os.environ["ALLOW_INSECURE_DEV_DB"] = "1"  # the throwaway test container uses a deliberately weak, local-only password
 os.environ["JWT_SECRET"] = "k9Zq" * 12  # 48 chars, no placeholder markers
 os.environ["AGENT_API_KEY"] = "test-agent-key-0123456789abcdef"
 os.environ["CORS_ALLOWED_ORIGINS"] = "http://localhost:5173"
+TEST_REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://127.0.0.1:56379/3")
+os.environ["REDIS_URL"] = TEST_REDIS_URL
+# Generous timeouts for the suite: tests assert EXACT counts and must not be knocked onto the fallback by CI jitter.
+# (Tests that exercise outages/timeouts build their own backends with explicit tiny timeouts.)
+os.environ["REDIS_TIMEOUT_SECONDS"] = "2.0"
+os.environ["REDIS_RETRY_SECONDS"] = "1.0"  # the whole suite runs against real Redis when it is reachable
 os.environ["LOGIN_PER_IP_PER_MINUTE"] = "1000"  # individual tests lower this explicitly
 os.environ["QUERIES_PER_USER_PER_MINUTE"] = "1000"
 
@@ -74,13 +81,15 @@ def _clean_state():
             c.execute(text("TRUNCATE users CASCADE"))
     eng.dispose()
 
-    from app.ratelimit import FailureLockout  # noqa: F401
+    from app import deps, ratelimit
     from app.routers import auth, research
 
-    for limiter in (auth.login_ip_limiter, auth.register_ip_limiter, research.query_limiter):
+    for limiter in (auth.login_ip_limiter, auth.register_ip_limiter, research.query_limiter, deps.api_user_limiter):
         limiter.reset()
     auth.login_lockout.reset()
     research.stream_guard.reset()
+    research.global_stream_guard.reset()
+    ratelimit.get_backend()._down_until = 0.0  # a previous test's simulated outage must not leak
     yield
 
 

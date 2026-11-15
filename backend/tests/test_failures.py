@@ -53,4 +53,5 @@ def test_readiness_reports_database_failure(client, database_down):
 
 
 def test_readiness_ok_when_database_up(client):
-    assert client.get("/health/ready").json() == {"status": "ready", "database": "ok"}
+    body = client.get("/health/ready").json()
+    assert body["status"] == "ready" and body["database"] == "ok" and body["rate_limit"] in ("redis", "memory")

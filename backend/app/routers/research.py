@@ -15,7 +15,7 @@ from ..config import settings
 from ..db import SessionLocal
 from ..deps import get_current_user
 from ..models import Conversation, Message, Role, User
-from ..ratelimit import ConcurrencyGuard, SlidingWindowLimiter
+from ..ratelimit import ConcurrencyGuard, SlidingWindowLimiter, Slot
 from ..research_client import AgentProtocolError, AgentUnavailable, stream_research
 from ..schemas import QueryRequest
 
@@ -31,10 +31,12 @@ TOO_LARGE_ERROR = "The research result was too large to display."
 # Events the agent may send; anything else is dropped (and logged), never forwarded.
 _ALLOWED_EVENTS = {"checkpoint", "blocks", "clarification", "error", "done"}
 
-query_limiter = SlidingWindowLimiter(settings.queries_per_user_per_minute, 60)
-stream_guard = ConcurrencyGuard(
-    settings.max_concurrent_streams_per_user, ttl=settings.research_timeout_seconds + 120
-)
+_SLOT_TTL = settings.research_timeout_seconds + 120
+query_limiter = SlidingWindowLimiter("query-user", settings.queries_per_user_per_minute, 60)
+stream_guard = ConcurrencyGuard("streams-user", settings.max_concurrent_streams_per_user, ttl=_SLOT_TTL)
+# Caps paid-LLM fan-out across ALL users and ALL backend instances.
+global_stream_guard = ConcurrencyGuard("streams-global", settings.max_concurrent_streams_global, ttl=_SLOT_TTL)
+_GLOBAL_KEY = "all"
 
 
 def _sse(event: str, data: str) -> bytes:
@@ -151,6 +153,42 @@ async def _persist_with_retry(
     return None
 
 
+@dataclass
+class _Admission:
+    user_slot: Slot | None = None
+    global_slot: Slot | None = None
+    retry_after: int = 0
+    reason: str = ""  # "" = admitted | "rate" | "busy" | "capacity"
+
+
+def _admit(key: str) -> _Admission:
+    """Rate limit + per-user and global concurrency, in one step (runs in a worker thread).
+    Raises RateLimitUnavailable only when RATE_LIMIT_FAIL_MODE=closed and Redis is down."""
+    decision = query_limiter.hit(key)
+    if not decision.allowed:
+        return _Admission(retry_after=decision.retry_after, reason="rate")
+    user_slot = stream_guard.acquire(key)
+    if user_slot is None:
+        return _Admission(retry_after=5, reason="busy")
+    global_slot = global_stream_guard.acquire(_GLOBAL_KEY)
+    if global_slot is None:
+        stream_guard.release(user_slot)
+        return _Admission(retry_after=5, reason="capacity")
+    return _Admission(user_slot=user_slot, global_slot=global_slot)
+
+
+def _release(adm: _Admission) -> None:
+    stream_guard.release(adm.user_slot)
+    global_stream_guard.release(adm.global_slot)
+
+
+async def _release_async(adm: _Admission) -> None:
+    try:
+        await asyncio.shield(run_in_threadpool(_release, adm))
+    except BaseException:  # noqa: BLE001 - releasing must never mask the real outcome; TTL frees the slot anyway
+        pass
+
+
 @router.post("/{conv_id}/query")
 async def query_conversation(
     conv_id: uuid.UUID,
@@ -161,27 +199,25 @@ async def query_conversation(
     user_id = user.id
     key = str(user_id)
 
-    if not query_limiter.allow(key):
+    adm = await run_in_threadpool(_admit, key)
+    if adm.reason:
+        messages = {
+            "rate": "You are sending requests too quickly. Please wait a moment.",
+            "busy": "Too many research requests are already running. Wait for one to finish.",
+            "capacity": "The research service is at capacity. Please try again shortly.",
+        }
         raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "You are sending requests too quickly. Please wait a moment.",
-            headers={"Retry-After": str(query_limiter.retry_after(key))},
-        )
-    if not stream_guard.acquire(key):
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "Too many research requests are already running. Wait for one to finish.",
-            headers={"Retry-After": "5"},
+            status.HTTP_429_TOO_MANY_REQUESTS, messages[adm.reason], headers={"Retry-After": str(adm.retry_after)}
         )
 
     try:
         turn = await run_in_threadpool(_start_turn, user_id, conv_id, req.query)
     except Exception:
-        stream_guard.release(key)
+        await _release_async(adm)
         log.exception("failed to persist user message")
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Service temporarily unavailable") from None
     if turn is None:
-        stream_guard.release(key)
+        await _release_async(adm)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
 
     query_text = req.query
@@ -262,7 +298,7 @@ async def query_conversation(
             log.exception("research stream failed")
             yield _err(GENERIC_ERROR)
         finally:
-            stream_guard.release(key)
+            await _release_async(adm)
             try:
                 await asyncio.shield(agen.aclose())  # cancel the upstream agent request promptly
             except BaseException:  # noqa: BLE001 - cleanup must never mask the original exit

@@ -1,4 +1,5 @@
 import base64
+import uuid
 import json
 import threading
 import time
@@ -101,7 +102,7 @@ def test_login_wrong_password_and_unknown_user_look_identical(client, alice):
 
 
 def test_login_throttles_per_ip(client, alice, monkeypatch):
-    monkeypatch.setattr(auth_router, "login_ip_limiter", auth_router.SlidingWindowLimiter(3, 60))
+    monkeypatch.setattr(auth_router, "login_ip_limiter", auth_router.SlidingWindowLimiter("t-login-" + uuid.uuid4().hex[:8], 3, 60))
     codes = [
         client.post("/api/auth/login", json={"email": f"x{i}@example.com", "password": "whatever-pw"}).status_code
         for i in range(5)
@@ -133,7 +134,7 @@ def test_successful_login_resets_failure_counter(client, alice):
 
 
 def test_register_is_rate_limited(client, monkeypatch):
-    monkeypatch.setattr(auth_router, "register_ip_limiter", auth_router.SlidingWindowLimiter(2, 3600))
+    monkeypatch.setattr(auth_router, "register_ip_limiter", auth_router.SlidingWindowLimiter("t-register-" + uuid.uuid4().hex[:8], 2, 3600))
     codes = [
         client.post("/api/auth/register", json={"email": f"r{i}@example.com", "password": "longenough1", "name": "R"}).status_code
         for i in range(4)

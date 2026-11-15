@@ -285,14 +285,14 @@ def test_persistence_failure_emits_persist_error_and_does_not_crash(client, alic
 
 def test_query_rate_limit(client, alice, conv, install_agent, monkeypatch):
     install_agent([ev("blocks", BLOCKS), ev("done", {})])
-    monkeypatch.setattr(research_router, "query_limiter", SlidingWindowLimiter(2, 60))
+    monkeypatch.setattr(research_router, "query_limiter", SlidingWindowLimiter("t-query-" + uuid.uuid4().hex[:8], 2, 60))
     assert [ask(client, alice, conv).status_code for _ in range(3)] == [200, 200, 429]
     assert int(ask(client, alice, conv).headers["Retry-After"]) >= 1
 
 
 def test_rate_limit_is_per_user(client, alice, bob, install_agent, monkeypatch):
     install_agent([ev("blocks", BLOCKS), ev("done", {})])
-    monkeypatch.setattr(research_router, "query_limiter", SlidingWindowLimiter(1, 60))
+    monkeypatch.setattr(research_router, "query_limiter", SlidingWindowLimiter("t-query1-" + uuid.uuid4().hex[:8], 1, 60))
     a = client.post("/api/conversations", json={}, headers=alice["headers"]).json()["id"]
     b = client.post("/api/conversations", json={}, headers=bob["headers"]).json()["id"]
     assert ask(client, alice, a).status_code == 200
@@ -304,7 +304,7 @@ def test_concurrent_stream_cap_and_slot_release(client, alice, conv, install_age
     install_agent([ev("blocks", BLOCKS), ev("done", {})])
     key = alice["id"]
     for _ in range(settings.max_concurrent_streams_per_user):
-        assert research_router.stream_guard.acquire(key)
+        assert research_router.stream_guard.acquire(key) is not None
     r = ask(client, alice, conv)
     assert r.status_code == 429 and "Retry-After" in r.headers
     assert engine_rows("SELECT count(*) FROM messages")[0][0] == 0  # rejected before persisting anything
