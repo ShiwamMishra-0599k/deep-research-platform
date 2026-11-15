@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api } from "@/lib/api";
 import type { User } from "@/types";
+import { useChat } from "@/store/chat";
 
 interface AuthState {
   user: User | null;
@@ -60,6 +61,9 @@ export const useAuth = create<AuthState>((set) => ({
   logout: () => {
     localStorage.removeItem("auth_token");
     localStorage.removeItem("auth_user");
+    // The previous person's conversations and messages must not survive in memory:
+    // the next person to sign in on this tab would otherwise see them.
+    useChat.setState({ conversations: [], activeId: null, messages: {}, loading: false });
     set({ user: null });
   },
 }));

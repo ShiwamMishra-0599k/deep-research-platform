@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Menu, TrendingUp, Newspaper, MapPin, Bitcoin, DollarSign } from "lucide-react";
 import { useAuth } from "@/store/auth";
 import { useChat } from "@/store/chat";
-import { postSse } from "@/lib/sse";
+import { postSse, SseHttpError } from "@/lib/sse";
 import type { Block, Checkpoint, FollowUp, Message } from "@/types";
 import MessageBubble from "./MessageBubble";
 import ChatInput from "./ChatInput";
@@ -155,6 +155,14 @@ export default function ChatPanel({ onOpenNav }: { onOpenNav: () => void }) {
                 blocks: [{ template_id: "markdown", data: { content: `**Error:** ${collectedText}` } }],
               });
               break;
+            case "persist_error":
+              updateMessage(convId!, tempAssistant.id, {
+                blocks: [
+                  ...collectedBlocks,
+                  { template_id: "markdown", data: { content: "_This answer could not be saved to your history._" } },
+                ],
+              });
+              break;
             case "persisted":
               if (data.messageId) {
                 updateMessage(convId!, tempAssistant.id, { id: data.messageId });
@@ -164,9 +172,17 @@ export default function ChatPanel({ onOpenNav }: { onOpenNav: () => void }) {
         },
         onError: (e) => {
           console.error("SSE error", e);
+          const status = e instanceof SseHttpError ? e.status : 0;
+          const msg =
+            status === 429 ? "You are sending requests too quickly. Please wait a moment and try again."
+            : status === 401 ? "Your session has expired. Please sign in again."
+            : status === 404 ? "This conversation no longer exists."
+            : status === 413 || status === 422 ? "That request was rejected. Try a shorter question."
+            : status >= 500 ? "The service is temporarily unavailable. Please try again shortly."
+            : "Connection lost. Please retry.";
           updateMessage(convId!, tempAssistant.id, {
-            content: "Connection lost. Please retry.",
-            blocks: [{ template_id: "markdown", data: { content: "**Connection lost.** Please retry." } }],
+            content: msg,
+            blocks: [{ template_id: "markdown", data: { content: `**${msg}**` } }],
           });
         },
       });

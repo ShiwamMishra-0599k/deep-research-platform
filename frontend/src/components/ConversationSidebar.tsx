@@ -20,10 +20,12 @@ export default function ConversationSidebar({ open, onClose }: { open: boolean; 
   const logout = useAuth((s) => s.logout);
   const [pendingDelete, setPendingDelete] = useState<Conversation | null>(null);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch(() => {}); }, [load]);  // 401 is handled globally (redirect to sign-in)
   useEffect(() => {
-    if (routeId && routeId !== activeId) select(routeId);
-  }, [routeId, activeId, select]);
+    if (routeId && routeId !== activeId) {
+      select(routeId).then((ok) => { if (!ok) nav("/", { replace: true }); });
+    }
+  }, [routeId, activeId, select, nav]);
 
   async function handleNew() {
     const c = await create();

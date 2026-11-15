@@ -9,7 +9,8 @@ interface ChatState {
   loading: boolean;
 
   loadConversations: () => Promise<void>;
-  selectConversation: (id: string) => Promise<void>;
+  /** Resolves false when the conversation cannot be loaded (e.g. deleted); activeId is then cleared. */
+  selectConversation: (id: string) => Promise<boolean>;
   createConversation: () => Promise<Conversation>;
   deleteConversation: (id: string) => Promise<void>;
   renameConversation: (id: string, title: string) => Promise<void>;
@@ -37,9 +38,15 @@ export const useChat = create<ChatState>((set, get) => ({
 
   selectConversation: async (id) => {
     set({ activeId: id });
-    if (!get().messages[id]) {
+    if (get().messages[id]) return true;
+    try {
       const { data } = await api.get<Message[]>(`/conversations/${id}/messages`);
       set((s) => ({ messages: { ...s.messages, [id]: data } }));
+      return true;
+    } catch {
+      // Deleted elsewhere / no access / network: never stay pointed at a conversation we cannot load.
+      if (get().activeId === id) set({ activeId: null });
+      return false;
     }
   },
 
