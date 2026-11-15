@@ -1,9 +1,10 @@
 import { motion } from "framer-motion";
-import { Sparkles, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import type { Message, Checkpoint, FollowUp } from "@/types";
 import BlockRenderer from "./blocks/BlockRenderer";
 import CheckpointTrail from "./CheckpointTrail";
 import MarkdownBlock from "./blocks/MarkdownBlock";
+import Logo from "./Logo";
 
 interface Props {
   message: Message;
@@ -17,83 +18,80 @@ export default function MessageBubble({ message, streaming, checkpoints, onFollo
 
   if (isUser) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex justify-end"
-      >
-        <div className="max-w-[80%] rounded-3xl rounded-tr-md px-4 py-3 bg-grad-vivid text-white shadow-glow">
-          <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }} className="flex justify-end">
+        <div className="max-w-[85%] rounded-card bg-sunken px-4 py-2.5">
+          <p className="text-base whitespace-pre-wrap break-words">{message.content}</p>
         </div>
       </motion.div>
     );
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex gap-3"
+    <motion.article
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}
+      aria-label="Lumen response" aria-busy={streaming || undefined}
     >
-      <div className="shrink-0 w-9 h-9 rounded-2xl bg-grad-vivid grid place-items-center shadow-glow">
-        <Sparkles size={16} />
+      <div className="flex items-center gap-2 mb-3">
+        <Logo size={20} />
+        <span className="text-sm font-medium">Lumen</span>
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-xs font-display font-semibold gradient-text mb-1.5">Lumen</div>
 
-        {checkpoints && checkpoints.length > 0 && (
-          <CheckpointTrail items={checkpoints} active={!!streaming} />
-        )}
+      {checkpoints && checkpoints.length > 0 && (
+        <CheckpointTrail items={checkpoints} active={!!streaming} />
+      )}
 
-        {message.blocks && message.blocks.length > 0 ? (
-          <BlockRenderer blocks={message.blocks} />
-        ) : message.content ? (
-          <div className="glass rounded-2xl p-4">
-            <MarkdownBlock data={{ content: message.content }} />
-          </div>
-        ) : streaming ? (
-          <ThinkingSkeleton />
-        ) : null}
+      {message.blocks && message.blocks.length > 0 ? (
+        <BlockRenderer blocks={message.blocks} />
+      ) : message.content ? (
+        <MarkdownBlock data={{ content: message.content }} />
+      ) : streaming ? (
+        <ThinkingSkeleton />
+      ) : null}
 
-        {message.sources && message.sources.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
+      {message.sources && message.sources.length > 0 && (
+        <section aria-label="Sources" className="mt-5">
+          <h3 className="meta font-medium mb-2">Sources</h3>
+          <ul className="flex flex-wrap gap-1.5">
             {message.sources.slice(0, 8).map((url, i) => (
-              <a key={i} href={url} target="_blank" rel="noreferrer"
-                 className="chip hover:bg-white/[0.10] hover:text-white">
-                <ExternalLink size={10} />
-                {hostnameOf(url)}
-              </a>
+              <li key={i} className="min-w-0">
+                <a
+                  href={url} target="_blank" rel="noreferrer"
+                  className="tag max-w-full hover:bg-sunken hover:text-ink transition-colors"
+                >
+                  <ExternalLink size={12} aria-hidden="true" className="shrink-0" />
+                  <span className="truncate">{hostnameOf(url)}</span>
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </a>
+              </li>
             ))}
-          </div>
-        )}
+          </ul>
+        </section>
+      )}
 
-        {message.followUps && message.followUps.length > 0 && onFollowUp && (
-          <div className="mt-4 flex flex-wrap gap-2">
+      {message.followUps && message.followUps.length > 0 && onFollowUp && (
+        <section aria-label="Suggested follow-ups" className="mt-5">
+          <h3 className="meta font-medium mb-2">Follow up</h3>
+          <ul className="flex flex-wrap gap-2">
             {message.followUps.map((f, i) => (
-              <button key={i}
-                onClick={() => onFollowUp(f)}
-                className="px-3 py-1.5 rounded-full text-xs font-medium border border-white/[0.08]
-                           bg-white/[0.04] hover:bg-white/[0.08] hover:border-accent-violet/40 transition">
-                {f.label}
-              </button>
+              <li key={i}>
+                <button onClick={() => onFollowUp(f)} className="btn-secondary h-8 px-3 text-xs">
+                  {f.label}
+                </button>
+              </li>
             ))}
-          </div>
-        )}
-      </div>
-    </motion.div>
+          </ul>
+        </section>
+      )}
+    </motion.article>
   );
 }
 
 function ThinkingSkeleton() {
   return (
-    <div className="glass rounded-2xl p-4 space-y-2.5 max-w-md">
-      {[100, 90, 75].map((w, i) => (
-        <div
-          key={i}
-          className="h-3 rounded-full bg-gradient-to-r from-white/[0.04] via-white/[0.10] to-white/[0.04]
-                     bg-[length:400px_100%] animate-shimmer"
-          style={{ width: `${w}%`, animationDelay: `${i * 120}ms` }}
-        />
+    <div className="card p-4 space-y-2.5 max-w-md" role="status">
+      <span className="sr-only">Lumen is working on your question</span>
+      {[100, 88, 70].map((w, i) => (
+        <div key={i} className="h-3 rounded-control bg-sunken animate-pulse" style={{ width: `${w}%` }} />
       ))}
     </div>
   );

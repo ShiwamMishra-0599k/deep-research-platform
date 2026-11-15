@@ -1,0 +1,68 @@
+/*
+ * Lumen design tokens — the single source of truth for colour, type, spacing,
+ * radius, shadow and layout. Colours are stored as space-separated RGB triplets
+ * so Tailwind can apply alpha (`bg-accent/10`). Nothing outside this file (and
+ * tailwind.config.ts, which only references these variables) may hardcode a colour.
+ *
+ * Colour budget (60 / 30 / 10):
+ *   60%  canvas + surface    warm ivory     — page and content surfaces
+ *   30%  nav                 forest charcoal — sidebar, structural chrome
+ *   10%  accent              muted teal      — primary actions, active state, links
+ *
+ * All text pairings below were checked against WCAG 2.2 AA; see DESIGN.md.
+ */
+:root {
+  color-scheme: light;
+
+  /* ── 60% · Ivory surfaces ─────────────────────────────── */
+  --c-canvas: 245 244 239;        /* #F5F4EF  app background */
+  --c-surface: 252 251 248;       /* #FCFBF8  cards, inputs, tables */
+  --c-sunken: 236 234 227;        /* #ECEAE3  hover, table header, user message */
+
+  /* ── 30% · Forest charcoal structure ──────────────────── */
+  --c-nav: 38 51 47;              /* #26332F  sidebar */
+  --c-nav-raised: 49 64 59;       /* #31403B  sidebar hover / selected */
+  --c-nav-line: 62 78 72;         /* #3E4E48  sidebar dividers (decorative) */
+  --c-nav-text: 245 244 239;      /* #F5F4EF */
+  --c-nav-muted: 169 181 174;     /* #A9B5AE */
+
+  /* ── 10% · Muted teal accent ──────────────────────────── */
+  --c-accent: 86 132 119;         /* #568477  brand — icons, rings, pins, bars (non-text) */
+  --c-accent-strong: 74 120 106;  /* #4A786A  buttons, links on ivory (AA with white / on ivory) */
+  --c-accent-deep: 63 107 94;     /* #3F6B5E  hover, accent text on tint */
+  --c-accent-tint: 228 236 231;   /* #E4ECE7  selected / subtle accent background */
+  --c-accent-on-dark: 141 187 170;/* #8DBBAA  accent on charcoal */
+
+  /* ── Text & lines ─────────────────────────────────────── */
+  --c-ink: 38 51 47;              /* #26332F  primary text */
+  --c-muted: 95 105 98;           /* #5F6962  secondary text */
+  --c-placeholder: 105 115 108;   /* #69736C  placeholder */
+  --c-line: 221 226 219;          /* #DDE2DB  decorative borders and dividers */
+  --c-line-strong: 127 138 130;   /* #7F8A82  borders of interactive controls (≥3:1) */
+
+  /* ── Semantic (sparingly) ─────────────────────────────── */
+  --c-success: 39 107 67;         /* #276B43 */
+  --c-success-tint: 227 239 230;  /* #E3EFE6 */
+  --c-warning: 138 82 16;         /* #8A5210 */
+  --c-warning-tint: 245 235 218;  /* #F5EBDA */
+  --c-danger: 179 57 47;          /* #B3392F */
+  --c-danger-tint: 246 228 225;   /* #F6E4E1 */
+  --c-danger-on-dark: 241 154 144;/* #F19A90 */
+
+  /* ── Typography ───────────────────────────────────────── */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* Radius — two steps only, so the UI reads as one family */
+  --radius-control: 6px;          /* buttons, inputs, chips, menu items */
+  --radius-card: 8px;             /* cards, tables, maps, dialogs */
+
+  /* Shadow — restrained; borders do most of the work */
+  --shadow-sm: 0 1px 2px rgb(38 51 47 / 0.06);
+  --shadow-md: 0 4px 16px rgb(38 51 47 / 0.10), 0 1px 3px rgb(38 51 47 / 0.06);
+
+  /* Layout */
+  --sidebar-width: 17.5rem;       /* 280px */
+  --content-width: 46rem;         /* ~736px reading column */
+  --header-height: 3.5rem;        /* 56px */
+}

@@ -1,8 +1,9 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/store/auth";
+import { apiError } from "@/lib/api";
+import AuthLayout from "@/components/AuthLayout";
 
 export default function Login() {
   const nav = useNavigate();
@@ -19,73 +20,45 @@ export default function Login() {
       await login(email, password);
       nav("/");
     } catch (e: any) {
-      setErr(e?.response?.data?.error || "Login failed");
+      setErr(apiError(e, "Sign-in failed. Check your connection and try again."));
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-        className="w-full max-w-md glass-strong rounded-4xl p-8 shadow-glow"
-      >
-        <div className="flex items-center gap-2 mb-6">
-          <div className="w-10 h-10 rounded-2xl bg-grad-vivid grid place-items-center">
-            <Sparkles size={20} />
-          </div>
-          <div>
-            <div className="font-display font-bold text-xl gradient-text leading-none">Lumen</div>
-            <div className="text-xs text-zinc-400 mt-0.5">research, illuminated.</div>
-          </div>
-        </div>
-
-        <h1 className="text-2xl font-display font-bold mb-1">Welcome back</h1>
-        <p className="text-zinc-400 text-sm mb-6">Pick up where you left off.</p>
-
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div>
-            <label className="text-xs uppercase tracking-wider text-zinc-400">Email</label>
-            <input
-              className="field mt-1"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@domain.com"
-              required
-            />
-          </div>
-          <div>
-            <label className="text-xs uppercase tracking-wider text-zinc-400">Password</label>
-            <input
-              className="field mt-1"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-            />
-          </div>
-          {err && (
-            <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2">
-              {err}
-            </div>
-          )}
-          <button className="btn-primary w-full" disabled={loading}>
-            {loading ? <Loader2 className="animate-spin" size={18} /> : "Sign in"}
-          </button>
-        </form>
-
-        <div className="mt-6 text-sm text-zinc-400 text-center">
-          New here?{" "}
-          <Link to="/register" className="text-accent-cyan hover:underline underline-offset-4">
+    <AuthLayout
+      title="Sign in"
+      subtitle="Pick up where you left off."
+      footer={
+        <>
+          New to Lumen?{" "}
+          <Link to="/register" className="font-medium text-accent-strong underline underline-offset-2 hover:text-accent-deep">
             Create an account
           </Link>
+        </>
+      }
+    >
+      <form onSubmit={onSubmit} className="space-y-4" noValidate={false}>
+        <div>
+          <label htmlFor="email" className="label">Email</label>
+          <input
+            id="email" className="field" type="email" autoComplete="email"
+            value={email} onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com" required
+          />
         </div>
-      </motion.div>
-    </div>
+        <div>
+          <label htmlFor="password" className="label">Password</label>
+          <input
+            id="password" className="field" type="password" autoComplete="current-password"
+            value={password} onChange={(e) => setPassword(e.target.value)} required
+          />
+        </div>
+        {err && <div role="alert" className="field-error">{err}</div>}
+        <button className="btn-primary w-full" disabled={loading}>
+          {loading && <Loader2 className="animate-spin" size={16} aria-hidden="true" />}
+          {loading ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
+    </AuthLayout>
   );
 }

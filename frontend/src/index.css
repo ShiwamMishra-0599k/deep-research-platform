@@ -1,122 +1,125 @@
+@import "./styles/tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  :root {
-    color-scheme: dark;
-  }
-  html, body, #root {
-    height: 100%;
-  }
+  html, body, #root { height: 100%; }
+
   body {
-    @apply bg-ink-950 text-zinc-100 font-sans antialiased;
-    background-image:
-      radial-gradient(at 10% 0%, rgba(139, 92, 246, 0.18), transparent 45%),
-      radial-gradient(at 90% 10%, rgba(236, 72, 153, 0.14), transparent 50%),
-      radial-gradient(at 50% 100%, rgba(34, 211, 238, 0.10), transparent 55%);
-    background-attachment: fixed;
+    @apply bg-canvas text-ink font-sans text-sm antialiased;
   }
 
-  ::selection {
-    background: rgba(236, 72, 153, 0.45);
-  }
+  ::selection { background: rgb(var(--c-accent) / 0.28); }
 
-  /* Custom thin scrollbars */
+  /* One visible focus treatment everywhere. Light ring on charcoal surfaces. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-accent-strong));
+    outline-offset: 2px;
+  }
+  .on-nav :focus-visible { outline-color: rgb(var(--c-accent-on-dark)); }
+
+  /* Quiet scrollbars */
+  * { scrollbar-width: thin; scrollbar-color: rgb(var(--c-line-strong) / 0.5) transparent; }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 9999px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.16);
+  ::-webkit-scrollbar-thumb { background: rgb(var(--c-line-strong) / 0.45); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-line-strong) / 0.7); }
+
+  /* Motion is feedback, not decoration; honour the OS setting. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
 @layer components {
-  .glass {
-    @apply bg-white/[0.04] backdrop-blur-xl border border-white/[0.06];
+  /* ── Buttons ────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-control px-4 h-10 text-sm font-medium
+           transition-colors disabled:opacity-50 disabled:pointer-events-none select-none;
   }
-  .glass-strong {
-    @apply bg-white/[0.06] backdrop-blur-2xl border border-white/[0.08];
-  }
-  .gradient-text {
-    @apply bg-grad-vivid bg-clip-text text-transparent;
-  }
-  .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-2.5 font-semibold text-white
-           bg-grad-vivid shadow-glow transition hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
-  }
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 font-medium text-zinc-200
-           bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition;
-  }
+  .btn-primary   { @apply btn bg-accent-strong text-white hover:bg-accent-deep; }
+  .btn-secondary { @apply btn bg-surface text-ink border border-line-strong hover:bg-sunken; }
+  .btn-ghost     { @apply btn text-muted hover:bg-sunken hover:text-ink; }
+  .btn-danger    { @apply btn bg-danger text-white hover:brightness-95; }
+  .btn-icon      { @apply inline-flex items-center justify-center rounded-control h-9 w-9 shrink-0 transition-colors; }
+
+  /* ── Form controls ──────────────────────────────────────── */
+  .label { @apply block text-sm font-medium text-ink mb-1.5; }
   .field {
-    @apply w-full rounded-2xl bg-white/[0.04] border border-white/[0.08] px-4 py-3
-           text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-accent-violet/60
-           focus:ring-2 focus:ring-accent-violet/20 transition;
+    @apply w-full h-10 rounded-control bg-surface border border-line-strong px-3 text-sm text-ink
+           placeholder:text-placeholder transition-colors
+           hover:border-muted focus:outline-none focus:border-accent-strong focus:ring-1 focus:ring-accent-strong;
   }
-  .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/[0.08]
-           px-3 py-1 text-xs font-medium text-zinc-300;
-  }
+  .field-error { @apply text-sm text-danger bg-danger-tint rounded-control px-3 py-2; }
+
+  /* ── Containers ─────────────────────────────────────────── */
+  .card { @apply bg-surface border border-line rounded-card; }
+  .meta { @apply text-xs text-muted; }
+  .tag  { @apply inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-2 py-1 text-xs text-muted; }
 }
 
-/* Markdown content tweaks for chat messages */
-.markdown-body {
-  @apply text-zinc-100 leading-relaxed;
-}
-.markdown-body h1 { @apply text-2xl font-bold mt-4 mb-2 gradient-text; }
-.markdown-body h2 { @apply text-xl font-semibold mt-4 mb-2 text-zinc-50; }
-.markdown-body h3 { @apply text-lg font-semibold mt-3 mb-1.5 text-zinc-100; }
-.markdown-body p  { @apply my-2; }
-.markdown-body ul { @apply list-disc pl-6 my-2 space-y-1; }
-.markdown-body ol { @apply list-decimal pl-6 my-2 space-y-1; }
+/* ── Markdown reading surface ─────────────────────────────── */
+.markdown-body { @apply text-base text-ink; overflow-wrap: anywhere; }
+.markdown-body > :first-child { @apply mt-0; }
+.markdown-body > :last-child  { @apply mb-0; }
+.markdown-body h1 { @apply text-xl font-semibold mt-6 mb-3; }
+.markdown-body h2 { @apply text-lg font-semibold mt-6 mb-2; }
+.markdown-body h3 { @apply text-base font-semibold mt-5 mb-1.5; }
+.markdown-body p  { @apply my-3; }
+.markdown-body ul { @apply list-disc pl-6 my-3 space-y-1.5; }
+.markdown-body ol { @apply list-decimal pl-6 my-3 space-y-1.5; }
+.markdown-body li::marker { @apply text-muted; }
+.markdown-body strong { @apply font-semibold; }
+.markdown-body a { @apply text-accent-strong underline underline-offset-2 hover:text-accent-deep; }
+.markdown-body hr { @apply my-6 border-line; }
 .markdown-body code {
-  @apply font-mono text-[0.9em] bg-white/[0.06] px-1.5 py-0.5 rounded-md text-accent-cyan;
+  @apply font-mono text-[0.875em] bg-sunken px-1.5 py-0.5 rounded-control;
 }
 .markdown-body pre {
-  @apply bg-ink-900 border border-white/[0.06] rounded-xl p-4 my-3 overflow-auto;
+  @apply bg-sunken border border-line rounded-card p-4 my-4 overflow-auto text-sm;
 }
-.markdown-body pre code {
-  @apply bg-transparent p-0 text-zinc-200;
-}
-.markdown-body a {
-  @apply text-accent-cyan underline-offset-4 hover:underline;
-}
-.markdown-body blockquote {
-  @apply border-l-2 border-accent-violet/60 pl-4 my-3 text-zinc-300;
-}
-.markdown-body table {
-  @apply w-full text-sm my-3 border-collapse;
-}
+.markdown-body pre code { @apply bg-transparent p-0; }
+.markdown-body blockquote { @apply border-l-2 border-accent pl-4 my-4 text-muted; }
+/* Wide GFM tables scroll inside themselves instead of widening the page */
+.markdown-body .table-scroll { @apply my-4 overflow-x-auto border border-line rounded-card bg-surface; }
+.markdown-body table { @apply text-sm border-collapse; width: max-content; min-width: 100%; }
 .markdown-body th, .markdown-body td {
-  @apply border border-white/[0.08] px-3 py-2;
+  @apply px-3 py-2.5 text-left align-top border-b border-line;
+  overflow-wrap: normal; word-break: normal; max-width: 28rem;
 }
-.markdown-body th {
-  @apply bg-white/[0.04] text-zinc-300 font-medium text-left;
-}
+.markdown-body th { @apply bg-sunken font-medium text-ink whitespace-nowrap; }
+.markdown-body tr:last-child td { @apply border-b-0; }
 
-/* Leaflet dark tweaks — filter only the tile pane so brand pins + popups
-   aren't hue-rotated. */
-.leaflet-container { @apply rounded-2xl; background: #0d0d1a; }
-.leaflet-tile-pane {
-  filter: hue-rotate(180deg) invert(0.92) brightness(0.95) contrast(0.95);
-}
+/* ── Leaflet: light tiles stay natural; only chrome is restyled ── */
+.leaflet-container { font-family: var(--font-sans); background: rgb(var(--c-sunken)); }
 .leaflet-container .leaflet-control-attribution {
-  background: rgba(13, 13, 26, 0.7);
-  color: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(8px);
+  background: rgb(var(--c-surface) / 0.9);
+  color: rgb(var(--c-muted));
+  font-size: 11px;
 }
-.leaflet-container .leaflet-control-attribution a { color: #22d3ee; }
+.leaflet-container .leaflet-control-attribution a { color: rgb(var(--c-accent-deep)); }
+.leaflet-bar a, .leaflet-bar a:hover {
+  background-color: rgb(var(--c-surface));
+  color: rgb(var(--c-ink));
+  border-bottom-color: rgb(var(--c-line));
+}
+.leaflet-bar a:hover { background-color: rgb(var(--c-sunken)); }
+.leaflet-bar { border: 1px solid rgb(var(--c-line-strong)) !important; box-shadow: var(--shadow-sm) !important; border-radius: var(--radius-control) !important; }
 .leaflet-popup-content-wrapper {
-  background: #15152a;
-  color: #f1f1f4;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  background: rgb(var(--c-surface));
+  color: rgb(var(--c-ink));
+  border: 1px solid rgb(var(--c-line));
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-md);
 }
-.leaflet-popup-tip { background: #15152a; }
-.leaflet-popup-content { margin: 10px 14px; font-size: 13px; }
-.leaflet-popup-close-button { color: #a1a1aa !important; }
+.leaflet-popup-tip { background: rgb(var(--c-surface)); }
+.leaflet-popup-content { margin: 10px 14px; font-size: 14px; line-height: 1.4; }
+.leaflet-popup-close-button { color: rgb(var(--c-muted)) !important; }
 .lumen-pin { background: transparent; border: none; }

@@ -25,3 +25,11 @@ api.interceptors.response.use(
     return Promise.reject(err);
   }
 );
+
+/** Best-effort message from a FastAPI error body (`detail` is a string, or a list for validation errors). */
+export function apiError(e: any, fallback: string): string {
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg);
+  return fallback;
+}

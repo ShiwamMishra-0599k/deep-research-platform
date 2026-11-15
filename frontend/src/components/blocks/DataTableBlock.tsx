@@ -29,11 +29,11 @@ export default function DataTableBlock({ data }: { data: DataTableData }) {
   }
 
   function renderCell(v: unknown) {
-    if (v == null) return <span className="text-zinc-500">—</span>;
+    if (v == null || v === "") return <span className="text-muted" aria-label="No value">—</span>;
     if (typeof v === "string" && /^https?:\/\//.test(v)) {
       return (
         <a href={v} target="_blank" rel="noreferrer"
-           className="text-accent-cyan hover:underline underline-offset-4 truncate block max-w-[28ch]">
+           className="text-accent-strong underline underline-offset-2 hover:text-accent-deep truncate block max-w-[28ch]">
           {v.replace(/^https?:\/\//, "")}
         </a>
       );
@@ -42,39 +42,47 @@ export default function DataTableBlock({ data }: { data: DataTableData }) {
   }
 
   return (
-    <div className="glass rounded-2xl overflow-hidden">
-      <div className="overflow-x-auto max-h-[28rem]">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 backdrop-blur-md bg-ink-900/80">
-            <tr className="border-b border-white/[0.08]">
-              {columns.map((c) => (
-                <th key={c}
-                    className="text-left px-4 py-3 font-medium text-zinc-300 cursor-pointer select-none hover:text-white"
-                    onClick={() => toggleSort(c)}>
-                  <span className="inline-flex items-center gap-1.5">
-                    {c}
-                    {sortKey === c
-                      ? (dir === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />)
-                      : <ArrowUpDown size={12} className="opacity-40" />}
-                  </span>
-                </th>
-              ))}
+    <div className="card overflow-hidden">
+      {/* Scrolls inside the card on narrow screens; focusable so keyboard users can scroll it. */}
+      <div className="overflow-auto max-h-[28rem]" tabIndex={0} role="region" aria-label="Results table">
+        <table className="w-full text-sm border-separate border-spacing-0">
+          <thead className="sticky top-0 z-10 bg-sunken">
+            <tr>
+              {columns.map((c) => {
+                const sorted = sortKey === c;
+                return (
+                  <th
+                    key={c} scope="col"
+                    aria-sort={sorted ? (dir === "asc" ? "ascending" : "descending") : "none"}
+                    className="text-left font-medium px-4 py-2.5 border-b border-line whitespace-nowrap"
+                  >
+                    <button
+                      type="button" onClick={() => toggleSort(c)}
+                      className="inline-flex items-center gap-1.5 -mx-1 px-1 rounded-control hover:text-accent-deep"
+                    >
+                      {c}
+                      {sorted
+                        ? (dir === "asc" ? <ArrowUp size={12} aria-hidden="true" /> : <ArrowDown size={12} aria-hidden="true" />)
+                        : <ArrowUpDown size={12} aria-hidden="true" className="text-muted" />}
+                      <span className="sr-only">, sort</span>
+                    </button>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="[&>tr:last-child>td]:border-b-0">
             {sorted.map((row, i) => (
-              <tr key={i} className={`border-b border-white/[0.04] last:border-0 hover:bg-white/[0.05] transition
-                                      ${i % 2 === 1 ? "bg-white/[0.015]" : ""}`}>
+              <tr key={i} className="hover:bg-sunken/60 transition-colors">
                 {columns.map((c) => (
-                  <td key={c} className="px-4 py-3 text-zinc-200 align-top">
+                  <td key={c} className="px-4 py-2.5 align-top border-b border-line tabular-nums">
                     {renderCell(row[c])}
                   </td>
                 ))}
               </tr>
             ))}
             {sorted.length === 0 && (
-              <tr><td colSpan={columns.length}
-                       className="px-4 py-8 text-center text-zinc-500">No rows</td></tr>
+              <tr><td colSpan={columns.length || 1} className="px-4 py-8 text-center text-muted">No rows</td></tr>
             )}
           </tbody>
         </table>

@@ -1,42 +1,53 @@
-import { motion } from "framer-motion";
 import { Info, AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { InsightCardsData, InsightItem } from "@/types";
 
-const SEVERITY_STYLES: Record<NonNullable<InsightItem["severity"]>, { bg: string; ring: string; icon: JSX.Element; text: string }> = {
-  info:    { bg: "from-cyan-500/15 to-violet-500/10",   ring: "ring-cyan-400/30",   icon: <Info size={16} />,         text: "text-cyan-300" },
-  success: { bg: "from-emerald-500/15 to-cyan-500/10",  ring: "ring-emerald-400/30",icon: <CheckCircle2 size={16} />, text: "text-emerald-300" },
-  warning: { bg: "from-rose-500/15 to-amber-500/10",    ring: "ring-rose-400/30",   icon: <AlertTriangle size={16} />,text: "text-rose-300" },
+type Severity = NonNullable<InsightItem["severity"]>;
+
+// Severity is conveyed by icon + label as well as colour, so it never relies on colour alone.
+const SEVERITY: Record<Severity, { label: string; icon: JSX.Element; tone: string }> = {
+  info:    { label: "Info",    icon: <Info size={14} aria-hidden="true" />,          tone: "text-muted" },
+  success: { label: "Up",      icon: <CheckCircle2 size={14} aria-hidden="true" />,  tone: "text-success" },
+  warning: { label: "Caution", icon: <AlertTriangle size={14} aria-hidden="true" />, tone: "text-warning" },
 };
+
+/** Bodies arrive as "Label: value · Label: value". Show those as aligned rows, anything else as plain lines. */
+function BodyRows({ body }: { body: string }) {
+  const parts = body.split(" · ").map((s) => s.trim()).filter(Boolean);
+  return (
+    <dl className="mt-2 space-y-1 text-sm">
+      {parts.map((p, i) => {
+        const m = p.match(/^([^:]{1,24}):\s*(.+)$/);
+        return m ? (
+          <div key={i} className="flex justify-between gap-3">
+            <dt className="text-muted">{m[1]}</dt>
+            <dd className="text-right tabular-nums">{m[2]}</dd>
+          </div>
+        ) : (
+          <div key={i} className="tabular-nums">{p}</div>
+        );
+      })}
+    </dl>
+  );
+}
 
 export default function InsightCardsBlock({ data }: { data: InsightCardsData }) {
   const items = data.items ?? [];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    <ul className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
       {items.map((item, i) => {
-        const sev = item.severity || "info";
-        const s = SEVERITY_STYLES[sev];
+        const sev = SEVERITY[item.severity || "info"];
         return (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            whileHover={{ y: -3 }}
-            transition={{ delay: i * 0.05, duration: 0.3 }}
-            className={`group relative rounded-2xl p-4 border border-white/[0.06] bg-gradient-to-br ${s.bg} ring-1 ${s.ring}
-                        hover:shadow-glow hover:border-white/[0.12] transition`}
-          >
-            <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition
-                            bg-gradient-to-br from-white/[0.04] to-transparent" />
-            <div className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${s.text}`}>
-              {s.icon}
-              <span>{sev}</span>
+          <li key={i} className="card p-4 min-w-0">
+            <div className={`flex items-center gap-1.5 text-xs font-medium ${sev.tone}`}>
+              {sev.icon}
+              <span>{sev.label}</span>
             </div>
-            <div className="mt-2 font-display font-semibold text-zinc-50">{item.title}</div>
-            <div className="mt-1 text-sm text-zinc-300 leading-relaxed">{item.body}</div>
-          </motion.div>
+            <h3 className="mt-1.5 text-base font-semibold break-words">{item.title}</h3>
+            <BodyRows body={item.body} />
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }

@@ -11,8 +11,17 @@ interface AuthState {
   hydrate: () => void;
 }
 
+function readStoredUser(): User | null {
+  try {
+    const raw = localStorage.getItem("auth_user");
+    return raw ? (JSON.parse(raw) as User) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const useAuth = create<AuthState>((set) => ({
-  user: null,
+  user: readStoredUser(),
   loading: false,
 
   hydrate: () => {
